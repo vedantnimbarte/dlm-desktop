@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, errorMessage } from "../api";
 import { useStore } from "../store";
+import { pickExecutable } from "../pick";
 import type { ServeConfig } from "../types";
 
 /** Optional numeric input: empty means "don't pass the flag", which is not the
@@ -106,8 +107,22 @@ export default function SettingsTab() {
   const set = (patch: Partial<ServeConfig>) => patchConfig(patch);
   const running = status.kind === "ready" || status.kind === "starting";
 
-  const applyBinary = async () => {
-    await api.setBinaryOverride(binaryPath || null);
+  /** Pick the executable and apply it in one step — a chosen path the user
+   *  then has to confirm is a needless second click. */
+  const browseBinary = async () => {
+    const picked = await pickExecutable(
+      "Select the dlm executable",
+      binaryPath || caps?.binary,
+    );
+    if (!picked) return;
+    setBinaryPath(picked);
+    await applyBinaryPath(picked);
+  };
+
+  const applyBinary = () => applyBinaryPath(binaryPath || null);
+
+  const applyBinaryPath = async (path: string | null) => {
+    await api.setBinaryOverride(path);
     try {
       const probed = await api.probeEngine();
       setCaps(probed);
@@ -349,12 +364,21 @@ export default function SettingsTab() {
       <div className="section">
         <div className="section-title">Engine binary</div>
         <div className="field">
-          <input
-            value={binaryPath}
-            spellCheck={false}
-            placeholder={caps?.binary ?? "path to the dlm executable"}
-            onChange={(e) => setBinaryPath(e.target.value)}
-          />
+          <div className="field-row">
+            <input
+              value={binaryPath}
+              spellCheck={false}
+              placeholder={caps?.binary ?? "path to the dlm executable"}
+              onChange={(e) => setBinaryPath(e.target.value)}
+            />
+            <button
+              style={{ flex: "0 0 auto" }}
+              title="Choose the dlm executable"
+              onClick={() => void browseBinary()}
+            >
+              Browse…
+            </button>
+          </div>
           <div className="hint">
             {caps
               ? `Found ${caps.version} at ${caps.binary}`

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions the main window needs. Deliberately minimal: only the native folder picker, so the app can never read or write a path the user did not choose in a dialog.",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open"]
+}

@@ -188,6 +188,13 @@ fn probe_engine(state: State<'_, AppState>) -> UiResult<Capabilities> {
     Ok(engine::probe_capabilities(&binary))
 }
 
+/// Engines already running on this machine, so a user with no installed binary
+/// is offered the server they started themselves rather than a dead end.
+#[tauri::command(async)]
+fn discover_servers() -> Vec<engine::DiscoveredServer> {
+    engine::discover_local_servers()
+}
+
 #[tauri::command]
 fn set_binary_override(state: State<'_, AppState>, path: Option<String>) {
     *state.binary_override.lock().unwrap() = path.filter(|p| !p.is_empty()).map(PathBuf::from);
@@ -665,6 +672,10 @@ fn chat_stop(state: State<'_, AppState>) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Native folder/file picker. The only plugin here, and the capability
+        // grants it `open` alone — this app never needs to write through a
+        // dialog, so it cannot.
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // History lives in the platform's app-data directory so it survives
             // reinstalls and does not litter the working directory.
@@ -690,6 +701,7 @@ pub fn run() {
             engine_capabilities,
             engine_logs,
             probe_engine,
+            discover_servers,
             set_binary_override,
             start_local,
             attach_remote,

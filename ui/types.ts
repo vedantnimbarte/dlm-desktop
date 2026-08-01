@@ -330,3 +330,9 @@ export interface FlowSnapshot {
   findings: Finding[];
   subscribed: boolean;
 }
+
+/** A dlm server found already listening on localhost. */
+export interface DiscoveredServer {
+  address: string;
+  modelId: string;
+}

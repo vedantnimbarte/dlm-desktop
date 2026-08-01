@@ -9,6 +9,7 @@ import type {
   ApiLogEntry,
   Capabilities,
   ChatMessage,
+  DiscoveredServer,
   DeltaEvent,
   DoneEvent,
   ErrorEvent,
@@ -30,6 +31,7 @@ export const api = {
   capabilities: () => invoke<Capabilities | null>("engine_capabilities"),
   logs: () => invoke<LogLine[]>("engine_logs"),
   probeEngine: () => invoke<Capabilities>("probe_engine"),
+  discoverServers: () => invoke<DiscoveredServer[]>("discover_servers"),
   setBinaryOverride: (path: string | null) =>
     invoke<void>("set_binary_override", { path }),
 

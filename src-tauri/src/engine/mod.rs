@@ -91,9 +91,46 @@ pub struct Capabilities {
     pub telemetry: bool,
 }
 
+/// Ports probed when looking for an engine somebody already started.
+///
+/// Only dlm's default. Scanning a range would be a port scan of the user's own
+/// machine, which is both slow and rude; one well-known port covers the case
+/// that actually happens.
+pub const DISCOVERY_PORTS: &[u16] = &[8000];
+
+/// A dlm server found already running on this machine.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveredServer {
+    pub address: String,
+    pub model_id: String,
+}
+
+/// Look for an engine already listening on localhost.
+///
+/// The app cannot find a binary someone built from source, but it can notice
+/// that a server is already running — which is the same problem from the user's
+/// side, and one they should not have to solve by hand.
+pub fn discover_local_servers() -> Vec<DiscoveredServer> {
+    DISCOVERY_PORTS
+        .iter()
+        .filter_map(|&port| {
+            let endpoint = Endpoint::local(port);
+            // Identity, not just liveness: something else answering on 8000 is
+            // not a dlm server, and offering to attach to it would be wrong.
+            let cards = client::models(&endpoint).ok()?;
+            let model_id = cards.first()?.id.clone();
+            Some(DiscoveredServer {
+                address: endpoint.authority(),
+                model_id,
+            })
+        })
+        .collect()
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
-    #[error("no dlm binary found. Install it, or set the binary path in Settings.")]
+    #[error("no dlm binary found. Install it, set $DLM_BIN, or choose it in Settings.")]
     BinaryNotFound,
     #[error("failed to start {binary}: {source}")]
     Spawn {
@@ -461,8 +498,13 @@ impl Supervisor {
     }
 }
 
-/// Find the dlm binary: explicit override, then `PATH`, then the locations the
-/// official installers use (`install.ps1` / `install.sh`).
+/// Find the dlm binary: explicit override, then `$DLM_BIN`, then `PATH`, then
+/// the locations the official installers use (`install.ps1` / `install.sh`).
+///
+/// `$DLM_BIN` exists for the common case this app cannot otherwise solve:
+/// someone running an engine they built from source, which is on no install
+/// path at all. Guessing at sibling `target/release` directories would be
+/// magic that works on one machine and confuses everyone else.
 pub fn resolve_binary(override_path: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(p) = override_path {
         return if p.is_file() {
@@ -472,6 +514,18 @@ pub fn resolve_binary(override_path: Option<PathBuf>) -> Result<PathBuf> {
         };
     }
     let exe = if cfg!(windows) { "dlm.exe" } else { "dlm" };
+
+    if let Some(p) = std::env::var_os("DLM_BIN") {
+        let p = PathBuf::from(p);
+        // Accept either the executable itself or the directory holding it.
+        if p.is_file() {
+            return Ok(p);
+        }
+        let candidate = p.join(exe);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
 
     if let Some(paths) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&paths) {

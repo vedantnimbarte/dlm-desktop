@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, errorMessage } from "../api";
 import { useStore } from "../store";
 import { formatBytes, formatParams } from "../format";
+import { pickDirectory, pickExecutable } from "../pick";
 import FitTable from "./FitTable";
+import type { DiscoveredServer } from "../types";
 
 /** Browse local checkpoints, see whether they fit, and load one.
  *
@@ -18,6 +20,8 @@ export default function ModelTab() {
   const setStatus = useStore((s) => s.setStatus);
   const caps = useStore((s) => s.caps);
   const probeError = useStore((s) => s.probeError);
+  const setCaps = useStore((s) => s.setCaps);
+  const setProbeError = useStore((s) => s.setProbeError);
   const setRightPanel = useStore((s) => s.setRightPanel);
 
   const modelsRoot = useStore((s) => s.modelsRoot);
@@ -36,6 +40,27 @@ export default function ModelTab() {
   const [remoteAddress, setRemoteAddress] = useState("127.0.0.1:8000");
   const [remoteKey, setRemoteKey] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [discovered, setDiscovered] = useState<DiscoveredServer[]>([]);
+
+  // Look for an already-running engine whenever we are not connected. This is
+  // the answer to "no binary found" far more often than installing one is, and
+  // it costs a single request to a well-known port.
+  useEffect(() => {
+    if (status.kind === "ready") {
+      setDiscovered([]);
+      return;
+    }
+    let stale = false;
+    api
+      .discoverServers()
+      .then((found) => {
+        if (!stale) setDiscovered(found);
+      })
+      .catch(() => setDiscovered([]));
+    return () => {
+      stale = true;
+    };
+  }, [status.kind]);
 
   const busy = connecting || status.kind === "starting";
 
@@ -55,11 +80,11 @@ export default function ModelTab() {
     }
   };
 
-  const attach = async () => {
+  const attachTo = async (address: string, key?: string | null) => {
     setError(null);
     setConnecting(true);
     try {
-      setStatus(await api.attachRemote(remoteAddress, remoteKey || null));
+      setStatus(await api.attachRemote(address, key ?? null));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -67,9 +92,51 @@ export default function ModelTab() {
     }
   };
 
+  const attach = () => attachTo(remoteAddress, remoteKey || null);
+
+  /** Locate the engine binary and probe it, from the Local pane. */
+  const browseBinary = async () => {
+    const picked = await pickExecutable("Select the dlm executable");
+    if (!picked) return;
+    await api.setBinaryOverride(picked);
+    try {
+      setCaps(await api.probeEngine());
+      setProbeError(null);
+    } catch (e) {
+      setCaps(null);
+      setProbeError(errorMessage(e));
+    }
+  };
+
   const disconnect = async () => {
     await api.disconnect();
     setStatus({ kind: "disconnected" });
+  };
+
+  /** Pick a folder of checkpoints and scan it immediately — a picked folder
+   *  the user then has to press "Scan" on is a needless second step. */
+  const browseRoot = async () => {
+    const dir = await pickDirectory(
+      "Select a folder containing models",
+      rootDraft || modelsRoot,
+    );
+    if (!dir) return;
+    setRootDraft(dir);
+    await scanModels(dir);
+  };
+
+  /** Pick a single model folder directly, for a checkpoint that lives outside
+   *  the scanned directory. */
+  const browseModel = async () => {
+    const dir = await pickDirectory(
+      "Select a model folder",
+      config?.modelPath || modelsRoot,
+    );
+    if (!dir) return;
+    patchConfig({ modelPath: dir });
+    // Show the fit preview for it too, so "will this run?" is answered without
+    // the model having to be in the scanned list.
+    selectModel(dir);
   };
 
   return (
@@ -133,9 +200,41 @@ export default function ModelTab() {
             {!caps && (
               <div className="field">
                 <div className="hint error-text">
-                  {probeError ?? "dlm binary not found."} Set its path in
-                  Settings, or use Remote to attach to a server elsewhere.
+                  {probeError ?? "dlm binary not found."}
                 </div>
+                <div className="field-row" style={{ marginTop: 6 }}>
+                  <button onClick={() => void browseBinary()}>
+                    Locate dlm…
+                  </button>
+                </div>
+                <div className="hint">
+                  Or set <code>$DLM_BIN</code>, or use Remote to attach to a
+                  server running elsewhere.
+                </div>
+              </div>
+            )}
+
+            {/* A server the user already started is the answer to "no binary
+                found" far more often than installing one is. */}
+            {discovered.length > 0 && (
+              <div className="field">
+                {discovered.map((s) => (
+                  <div key={s.address} className="discovered">
+                    <div>
+                      <div className="discovered-title">
+                        dlm already running on {s.address}
+                      </div>
+                      <div className="hint dim">serving {s.modelId}</div>
+                    </div>
+                    <button
+                      className="primary"
+                      disabled={busy}
+                      onClick={() => void attachTo(s.address)}
+                    >
+                      Attach
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -144,7 +243,7 @@ export default function ModelTab() {
               <div className="field-row">
                 <input
                   value={rootDraft || modelsRoot || ""}
-                  placeholder="path to a folder of checkpoints"
+                  placeholder="folder containing your checkpoints"
                   spellCheck={false}
                   onChange={(e) => setRootDraft(e.target.value)}
                   onKeyDown={(e) => {
@@ -152,6 +251,14 @@ export default function ModelTab() {
                       void scanModels(rootDraft);
                   }}
                 />
+                <button
+                  style={{ flex: "0 0 auto" }}
+                  disabled={modelsScanning}
+                  title="Choose a folder"
+                  onClick={() => void browseRoot()}
+                >
+                  Browse…
+                </button>
                 <button
                   style={{ flex: "0 0 auto" }}
                   disabled={modelsScanning}
@@ -216,12 +323,25 @@ export default function ModelTab() {
 
             <div className="field" style={{ marginTop: 12 }}>
               <label>Model directory</label>
-              <input
-                value={config?.modelPath ?? ""}
-                placeholder="select one above, or type a path"
-                spellCheck={false}
-                onChange={(e) => patchConfig({ modelPath: e.target.value })}
-              />
+              <div className="field-row">
+                <input
+                  value={config?.modelPath ?? ""}
+                  placeholder="pick one above, or browse"
+                  spellCheck={false}
+                  onChange={(e) => patchConfig({ modelPath: e.target.value })}
+                />
+                <button
+                  style={{ flex: "0 0 auto" }}
+                  title="Choose a model folder"
+                  onClick={() => void browseModel()}
+                >
+                  Browse…
+                </button>
+              </div>
+              <div className="hint">
+                A folder with <code>config.json</code> and{" "}
+                <code>*.safetensors</code>.
+              </div>
             </div>
 
             <div className="field-row">

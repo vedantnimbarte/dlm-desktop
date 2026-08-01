@@ -141,3 +141,18 @@ fn cancel_stops_a_stream_early() {
     );
     assert!(deltas >= 3, "cancelled before producing any tokens");
 }
+
+/// Discovery must find an engine the user started themselves — the case that
+/// makes "no dlm binary found" a dead end rather than a detour.
+#[test]
+fn discovery_finds_a_running_engine_on_the_default_port() {
+    let endpoint = live!(discovery_finds_a_running_engine_on_the_default_port);
+    if endpoint.port != 8000 {
+        eprintln!("skipping: discovery only probes dlm's default port (8000)");
+        return;
+    }
+    let found = dlm_desktop_lib::engine::discover_local_servers();
+    assert!(!found.is_empty(), "a server is running but was not discovered");
+    eprintln!("discovered: {} serving {}", found[0].address, found[0].model_id);
+    assert!(!found[0].model_id.is_empty(), "a hit must name its model");
+}
