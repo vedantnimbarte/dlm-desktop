@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail the build on warnings so dead code and unused imports do not
+  # accumulate behind a green tick.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing should not hide the others: the hardware backends
+      # differ per platform and that is exactly where breakage hides.
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: dlm-desktop
+
+      # src-tauri/Cargo.toml depends on the engine by relative path
+      # (`../../dlm`) so the telemetry work can be developed across both repos
+      # in lockstep. CI reproduces that layout rather than special-casing the
+      # manifest, so what builds here is what builds locally.
+      - uses: actions/checkout@v4
+        with:
+          repository: vedantnimbarte/dlm
+          ref: ${{ github.event_name == 'pull_request' && 'main' || 'main' }}
+          path: dlm
+
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dlm-desktop/src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dlm-desktop/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: dlm-desktop
+        run: npm ci
+
+      - name: Typecheck frontend
+        working-directory: dlm-desktop
+        run: npx tsc --noEmit
+
+      - name: Build frontend
+        working-directory: dlm-desktop
+        run: npm run build
+
+      - name: rustfmt
+        working-directory: dlm-desktop/src-tauri
+        run: cargo fmt --check
+
+      - name: clippy
+        working-directory: dlm-desktop/src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      # The live_* integration tests skip themselves unless DLM_LIVE_ADDR /
+      # DLM_MODELS_DIR are set, so this stays hermetic. They are run against a
+      # real engine locally; see README.
+      - name: Test
+        working-directory: dlm-desktop/src-tauri
+        run: cargo test --all-targets
+
+      # Proves the app actually links and bundles on this platform, which
+      # `cargo test` does not: the Tauri build runs codegen over the frontend
+      # dist and links the webview.
+      - name: Build app
+        working-directory: dlm-desktop
+        run: npm run tauri build -- --no-bundle

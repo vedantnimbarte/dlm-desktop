@@ -67,7 +67,7 @@ pub fn analyze(flow: &FlowState, hw: &HwSnapshot) -> Vec<Finding> {
     sampling(&mut out, flow);
 
     // Most severe first — the UI shows a truncated list.
-    out.sort_by(|a, b| b.severity.cmp(&a.severity));
+    out.sort_by_key(|f| std::cmp::Reverse(f.severity));
     out
 }
 
@@ -112,12 +112,18 @@ fn thermal_throttle(out: &mut Vec<Finding>, hw: &HwSnapshot) {
         out.push(Finding {
             id: "gpu-throttled",
             severity: Severity::Warning,
-            title: format!("{} is throttled ({})", gpu.name, gpu.throttle_reasons.join(", ")),
+            title: format!(
+                "{} is throttled ({})",
+                gpu.name,
+                gpu.throttle_reasons.join(", ")
+            ),
             detail: format!(
                 "The card is not running at full speed{temp}{clocks}. Compute time is inflated, \
                  which makes the run look more compute-bound than it is."
             ),
-            fix: Some("Improve airflow, or raise the power/thermal limit if the card allows it.".into()),
+            fix: Some(
+                "Improve airflow, or raise the power/thermal limit if the card allows it.".into(),
+            ),
         });
     }
 }
@@ -129,8 +135,8 @@ fn bus_bound(out: &mut Vec<Finding>, flow: &FlowState) {
     if ratio < BUS_BOUND_RATIO {
         return;
     }
-    let pct = 100.0 * flow.transfer_us() as f64
-        / (flow.transfer_us() + flow.compute.total_us) as f64;
+    let pct =
+        100.0 * flow.transfer_us() as f64 / (flow.transfer_us() + flow.compute.total_us) as f64;
     out.push(Finding {
         id: "bus-bound",
         severity: Severity::Warning,
@@ -428,7 +434,11 @@ mod tests {
             ram_miss: stat(28, 880_000_000, 1_300_000),
             ..Default::default()
         };
-        assert!(found(&analyze(&flow, &HwSnapshot::default()), "ram-cache-ineffective").is_none());
+        assert!(found(
+            &analyze(&flow, &HwSnapshot::default()),
+            "ram-cache-ineffective"
+        )
+        .is_none());
     }
 
     /// A first pass is all misses by definition and must not fire.
@@ -439,7 +449,11 @@ mod tests {
             ram_miss: stat(4, 100, 100),
             ..Default::default()
         };
-        assert!(found(&analyze(&flow, &HwSnapshot::default()), "ram-cache-ineffective").is_none());
+        assert!(found(
+            &analyze(&flow, &HwSnapshot::default()),
+            "ram-cache-ineffective"
+        )
+        .is_none());
     }
 
     // --- prefetch -------------------------------------------------------

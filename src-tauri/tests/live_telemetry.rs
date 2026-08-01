@@ -73,19 +73,12 @@ fn capture(endpoint: &Endpoint) -> dlm_desktop_lib::flow::FlowState {
     };
     let gen_cancel = Cancel::new();
     let mut deltas = 0usize;
-    let gen = client::chat_stream(
-        endpoint,
-        &model,
-        &messages,
-        &sampling,
-        &gen_cancel,
-        |e| {
-            if matches!(e, client::ChatEvent::Delta(_)) {
-                deltas += 1;
-            }
-            Flow::Continue
-        },
-    );
+    let gen = client::chat_stream(endpoint, &model, &messages, &sampling, &gen_cancel, |e| {
+        if matches!(e, client::ChatEvent::Delta(_)) {
+            deltas += 1;
+        }
+        Flow::Continue
+    });
     // The generation is what produces the telemetry; if it did not run, an
     // empty aggregator says nothing about the telemetry path.
     gen.expect("generation failed");
@@ -205,11 +198,7 @@ fn layer_residency_never_exceeds_the_configured_window() {
         "one cell per layer"
     );
 
-    let evicted: usize = state
-        .layers
-        .iter()
-        .filter(|l| l.evictions > 0)
-        .count();
+    let evicted: usize = state.layers.iter().filter(|l| l.evictions > 0).count();
     eprintln!(
         "{} of {} layers were evicted at least once (window {})",
         evicted, snapshot.num_layers, snapshot.resident_layers
@@ -255,8 +244,10 @@ fn diagnostics_describe_the_real_run() {
         state.snapshot.as_ref(),
     ) {
         assert!(
-            hit.detail
-                .contains(&format!("{} of {}", snapshot.resident_layers, snapshot.num_layers)),
+            hit.detail.contains(&format!(
+                "{} of {}",
+                snapshot.resident_layers, snapshot.num_layers
+            )),
             "finding must quote the real window: {}",
             hit.detail
         );

@@ -267,9 +267,7 @@ impl HwSource for SystemHw {
 ///
 /// `GpuIdle` and `ApplicationsClocksSetting` are omitted: neither indicates a
 /// problem, and listing them would train the user to ignore this field.
-fn describe_throttle(
-    reasons: nvml_wrapper::bitmasks::device::ThrottleReasons,
-) -> Vec<String> {
+fn describe_throttle(reasons: nvml_wrapper::bitmasks::device::ThrottleReasons) -> Vec<String> {
     use nvml_wrapper::bitmasks::device::ThrottleReasons as R;
     let mut out = Vec::new();
     if reasons.contains(R::SW_THERMAL_SLOWDOWN) || reasons.contains(R::HW_THERMAL_SLOWDOWN) {
@@ -368,10 +366,7 @@ mod tests {
         };
         // Gen4 x16 ≈ 31.5 GB/s one direction.
         let bw = gpu.link_bandwidth().unwrap();
-        assert!(
-            (31_000_000_000..32_000_000_000).contains(&bw),
-            "got {bw}"
-        );
+        assert!((31_000_000_000..32_000_000_000).contains(&bw), "got {bw}");
     }
 
     #[test]

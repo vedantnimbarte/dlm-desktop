@@ -175,7 +175,11 @@ impl ServeConfig {
         let d = ServeConfig::default();
         let mut a: Vec<String> = vec!["serve".into()];
 
-        push_val(&mut a, "--model-path", self.model_path.display().to_string());
+        push_val(
+            &mut a,
+            "--model-path",
+            self.model_path.display().to_string(),
+        );
 
         if self.port != d.port {
             push_val(&mut a, "--port", self.port.to_string());
@@ -434,7 +438,9 @@ mod tests {
             model_path: PathBuf::from("C:/My Models/Qwen"),
             ..cfg()
         };
-        assert!(c.display_command("dlm", true).contains("\"C:/My Models/Qwen\""));
+        assert!(c
+            .display_command("dlm", true)
+            .contains("\"C:/My Models/Qwen\""));
         // The spawned argv passes the raw path; the OS handles it, not a shell.
         assert!(c.to_argv(true).contains(&"C:/My Models/Qwen".to_string()));
     }

@@ -20,17 +20,17 @@ something you can see the effect of.
 
 ## Status
 
-Early. Built in milestones; what is working today:
-
 | | |
 |---|---|
-| ✅ | Streaming chat against a local or remote `dlm serve` |
+| ✅ | Streaming chat against a local or remote `dlm serve`, with per-turn tok/s and TTFT |
 | ✅ | Connection supervision — spawn and own a server, or attach to one |
+| ✅ | Conversation history in SQLite, with full-text search across every chat |
+| ✅ | Model manager: scan checkpoints, and a VRAM fit preview per `--quant` |
 | ✅ | Full `dlm serve` flag editor with a verbatim command preview |
-| ✅ | Live engine log panel |
-| ⏳ | Conversation persistence (SQLite), model manager with VRAM fit preview |
-| ⏳ | Flow visualization (needs the engine telemetry work, below) |
-| ⏳ | Hardware counters and issue detection |
+| ✅ | API log — every request with latency, TTFT and token counts |
+| ✅ | Live flow view: measured per-stage bandwidth, layer residency, issue detection |
+| ✅ | Engine telemetry (A1–A5) landed in dlm |
+| ✅ | CI and release bundles for Windows, Linux and macOS |
 
 ## Architecture
 
@@ -77,30 +77,65 @@ dlm serve --model-path models/Qwen3-0.6B --device cpu --stream \
 DLM_LIVE_ADDR=127.0.0.1:8123 cargo test --test live_server -- --nocapture
 ```
 
-The live tests are skipped unless `DLM_LIVE_ADDR` is set, so `cargo test` stays
-hermetic. They exist because unit tests cannot prove interoperability with dlm's
-hand-rolled HTTP server — its header framing, its `Connection: close` SSE bodies,
-and its chunk shapes.
+The live tests are skipped unless `DLM_LIVE_ADDR` (or `DLM_MODELS_DIR`) is set,
+so `cargo test` stays hermetic. They exist because unit tests cannot prove
+interoperability with a real engine, and both bugs that mattered most were only
+visible end to end:
+
+- an SSE frame cap that aborted the telemetry stream precisely when there was
+  activity to report, and
+- a subscriber gate that let a departing connection switch collection off
+  underneath an arriving one.
+
+Both looked identical to "nothing happened" from the UI.
+
+Run the whole set against a real engine:
+
+```sh
+dlm serve --model-path models/Qwen3-0.6B --device cpu --stream \
+          --resident-layers 3 --ram-cache-gb 2 --chat-template plain \
+          --port 8130 --telemetry &
+
+DLM_LIVE_ADDR=127.0.0.1:8130 \
+DLM_MODELS_DIR=../../dlm/models \
+  cargo test --all-targets -- --test-threads=1
+```
+
+## CI and releases
+
+`.github/workflows/ci.yml` runs fmt, clippy (`-D warnings`), the tests and a
+real Tauri link step on Windows, Linux and macOS. It checks the engine out as a
+sibling directory so CI reproduces the `../../dlm` path dependency rather than
+special-casing the manifest — what builds there is what builds locally.
+
+`.github/workflows/release.yml` builds signed bundles (msi/nsis, AppImage/deb,
+dmg for both Mac architectures) on a `v*` tag and opens a draft release. Set the
+`DLM_ENGINE_REF` repository variable to the engine tag a release was tested
+against; signing secrets are optional, and their absence produces an unsigned
+bundle rather than a failed build.
 
 ## Engine changes this depends on
 
-The flow visualization needs telemetry that dlm does not emit yet. Today the
-engine exposes only aggregate Prometheus counters at `/metrics`
-(`dlm_stream_layer_hits_total` and friends) — no timestamped per-layer events and
-no per-stage timings. The planned additions, tracked against the dlm repo:
+The flow view needs telemetry `/metrics` cannot provide: aggregate counters
+answer "is the window working?" but not "where did the time go?". These landed
+in the dlm repo on `feat/telemetry-events`:
 
 | | |
 |---|---|
 | A1 | A telemetry event bus with a bounded ring buffer, gated so it costs nothing when off |
-| A2 | Emission at the existing seams: `streaming.rs` load/compute timers, `LayerRamCache::get_or_load`, `upload_async`'s stage/copy split, the prefetch worker, LRU eviction |
-| A3 | `cudaEventElapsedTime` FFI, so an H2D copy is timed by the GPU rather than by wall-clock around a `synchronize()` |
-| A4 | `GET /v1/telemetry` (SSE) behind a `--telemetry` flag, inside the `--api-key` guard |
-| A5 | A progress callback on `hub::pull`, so downloads can show a real progress bar |
+| A2 | Emission at the existing seams: `streaming.rs`'s load/compute timers, `CachedLayerSource`'s hit/miss, `upload_async`'s stage/copy split, the prefetch queue, LRU eviction |
+| A3 | `cudaEventElapsedTime` / `hipEventElapsedTime` FFI plus a `CopyTimer`, so an H2D copy is timed by the device rather than by wall-clock around an enqueue |
+| A4 | `GET /v1/telemetry` (SSE) behind `--telemetry`, inside the `--api-key` guard |
+| A5 | `hub::pull_with_progress`, so downloads can show real progress |
 
-Until A4 lands, the app detects the missing `--telemetry` flag by probing
-`dlm serve --help`, drops the flag rather than failing to start, and says so in
-the status bar. **No event is ever fabricated to fill the gap** — a measurement
-the engine did not make is not shown as one.
+Against an engine without them, the app probes `dlm serve --help`, drops the
+flag rather than failing to start, and says "telemetry unavailable" in the
+status bar. **No event is ever fabricated to fill the gap** — a measurement the
+engine did not make is not shown as one. The same rule runs through the whole
+feature: a CPU run draws no PCIe hop rather than inventing one, an estimated
+duration renders as a dashed edge, dropped events surface as "sampled at N%",
+and a diagnostic rule with a missing counter declines to fire rather than
+assuming a default.
 
 Telemetry events carry timings, byte counts and layer indices only. No prompt or
 completion text ever enters them, which is what makes the endpoint safe to expose

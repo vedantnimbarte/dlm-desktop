@@ -218,13 +218,10 @@ fn disconnect(state: State<'_, AppState>) {
 
 #[tauri::command]
 fn server_metrics(state: State<'_, AppState>) -> UiResult<ServerMetrics> {
-    let endpoint = state
-        .supervisor
-        .endpoint()
-        .ok_or_else(|| UiError {
-            kind: "notConnected".into(),
-            message: "not connected to a dlm server".into(),
-        })?;
+    let endpoint = state.supervisor.endpoint().ok_or_else(|| UiError {
+        kind: "notConnected".into(),
+        message: "not connected to a dlm server".into(),
+    })?;
     Ok(client::metrics(&endpoint)?)
 }
 
@@ -288,9 +285,7 @@ fn flow_subscribe(state: State<'_, AppState>) -> UiResult<()> {
         let _ = telemetry::subscribe(&endpoint, &cancel, |frame| {
             match frame {
                 telemetry::Frame::Snapshot(s) => agg.lock().unwrap().set_snapshot(s),
-                telemetry::Frame::Flow(b) => {
-                    agg.lock().unwrap().ingest(b.events, b.dropped)
-                }
+                telemetry::Frame::Flow(b) => agg.lock().unwrap().ingest(b.events, b.dropped),
             }
             Flow::Continue
         });
@@ -425,7 +420,9 @@ fn finalize_message(
     content: String,
     meta: Option<String>,
 ) -> UiResult<()> {
-    Ok(state.store()?.update_message(&id, &content, meta.as_deref())?)
+    Ok(state
+        .store()?
+        .update_message(&id, &content, meta.as_deref())?)
 }
 
 /// Drop a message and everything after it — "regenerate" and "edit & branch".
@@ -537,47 +534,43 @@ fn chat_send(
         let mut done: Option<DoneEvent> = None;
         let mut answer = String::new();
 
-        let result = client::chat_stream(
-            &endpoint,
-            &model,
-            &messages,
-            &sampling,
-            &cancel,
-            |event| match event {
-                ChatEvent::Delta(text) => {
-                    if first_token_at.is_none() {
-                        first_token_at = Some(started.elapsed());
+        let result =
+            client::chat_stream(&endpoint, &model, &messages, &sampling, &cancel, |event| {
+                match event {
+                    ChatEvent::Delta(text) => {
+                        if first_token_at.is_none() {
+                            first_token_at = Some(started.elapsed());
+                        }
+                        delta_count += 1;
+                        // Kept only up to the preview cap, so a long generation
+                        // does not accumulate a second copy of itself here.
+                        if answer.len() < PREVIEW_LIMIT {
+                            answer.push_str(&text);
+                        }
+                        let _ = app.emit("chat:delta", DeltaEvent { request_id, text });
+                        Flow::Continue
                     }
-                    delta_count += 1;
-                    // Kept only up to the preview cap, so a long generation
-                    // does not accumulate a second copy of itself here.
-                    if answer.len() < PREVIEW_LIMIT {
-                        answer.push_str(&text);
+                    ChatEvent::Finished { reason, usage } => {
+                        let ttft = first_token_at.map(|d| d.as_millis() as u64);
+                        // Rate over the generation phase only — including the
+                        // prefill would understate a streamed model's decode speed.
+                        let gen_secs = first_token_at
+                            .map(|t| (started.elapsed() - t).as_secs_f64())
+                            .unwrap_or(0.0);
+                        let counted = usage.map(|u| u.completion_tokens).unwrap_or(delta_count);
+                        done = Some(DoneEvent {
+                            request_id,
+                            reason: reason.unwrap_or_else(|| "stop".into()),
+                            prompt_tokens: usage.map(|u| u.prompt_tokens),
+                            completion_tokens: usage.map(|u| u.completion_tokens),
+                            ttft_ms: ttft,
+                            tokens_per_sec: (gen_secs > 0.0 && counted > 0)
+                                .then(|| counted as f64 / gen_secs),
+                        });
+                        Flow::Continue
                     }
-                    let _ = app.emit("chat:delta", DeltaEvent { request_id, text });
-                    Flow::Continue
                 }
-                ChatEvent::Finished { reason, usage } => {
-                    let ttft = first_token_at.map(|d| d.as_millis() as u64);
-                    // Rate over the generation phase only — including the
-                    // prefill would understate a streamed model's decode speed.
-                    let gen_secs = first_token_at
-                        .map(|t| (started.elapsed() - t).as_secs_f64())
-                        .unwrap_or(0.0);
-                    let counted = usage.map(|u| u.completion_tokens).unwrap_or(delta_count);
-                    done = Some(DoneEvent {
-                        request_id,
-                        reason: reason.unwrap_or_else(|| "stop".into()),
-                        prompt_tokens: usage.map(|u| u.prompt_tokens),
-                        completion_tokens: usage.map(|u| u.completion_tokens),
-                        ttft_ms: ttft,
-                        tokens_per_sec: (gen_secs > 0.0 && counted > 0)
-                            .then(|| counted as f64 / gen_secs),
-                    });
-                    Flow::Continue
-                }
-            },
-        );
+            });
 
         // One API-log row per turn, whatever the outcome. A request that failed
         // or was cancelled is exactly the one someone opens this panel to look
@@ -598,7 +591,10 @@ fn chat_send(
             status,
             latency_ms: Some(started.elapsed().as_millis() as i64),
             ttft_ms: first_token_at.map(|d| d.as_millis() as i64),
-            prompt_tokens: done.as_ref().and_then(|d| d.prompt_tokens).map(|n| n as i64),
+            prompt_tokens: done
+                .as_ref()
+                .and_then(|d| d.prompt_tokens)
+                .map(|n| n as i64),
             completion_tokens: done
                 .as_ref()
                 .and_then(|d| d.completion_tokens)

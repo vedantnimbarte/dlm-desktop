@@ -48,7 +48,11 @@ fn scan_finds_checkpoints_and_reads_their_geometry() {
             m.num_layers,
             m.hidden_size,
             gib(m.checkpoint_bytes),
-            if m.has_tokenizer { "tok" } else { "NO TOKENIZER" },
+            if m.has_tokenizer {
+                "tok"
+            } else {
+                "NO TOKENIZER"
+            },
             m.error
                 .as_ref()
                 .map(|e| format!("  [{e}]"))
@@ -95,8 +99,8 @@ fn fit_preview_shows_quantization_buying_resident_layers() {
         preview.model.name, preview.native_quant, preview.model.num_layers
     );
     eprintln!(
-        "{:<11} {:>9} {:>10} {:>8} {:>12}  {}",
-        "quant", "resident", "of total", "passes", "per-layer", "note"
+        "{:<11} {:>9} {:>10} {:>8} {:>12}  note",
+        "quant", "resident", "of total", "passes", "per-layer"
     );
     for row in &preview.rows {
         if !row.available {
@@ -176,9 +180,8 @@ fn without_a_vram_figure_rows_are_marked_unavailable() {
         .find(|m| m.error.is_none() && m.num_layers > 0)
         .expect("no decodable model");
 
-    let preview =
-        models::fit_preview(std::path::Path::new(&model.path), 4096, 1, None, None)
-            .expect("fit_preview failed");
+    let preview = models::fit_preview(std::path::Path::new(&model.path), 4096, 1, None, None)
+        .expect("fit_preview failed");
 
     match preview.vram {
         // No GPU on this machine: every row must be unavailable with a reason.
@@ -188,10 +191,7 @@ fn without_a_vram_figure_rows_are_marked_unavailable() {
                 "rows must not be planned without a VRAM figure"
             );
             assert!(
-                preview
-                    .rows
-                    .iter()
-                    .all(|r| r.unavailable_reason.is_some()),
+                preview.rows.iter().all(|r| r.unavailable_reason.is_some()),
                 "every unavailable row must explain itself"
             );
         }

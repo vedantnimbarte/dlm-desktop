@@ -113,6 +113,10 @@ pub enum EngineError {
 
 pub type Result<T> = std::result::Result<T, EngineError>;
 
+/// Receives each captured log line. Named so the supervisor's field stays
+/// readable rather than a four-deep nested generic.
+pub type LogSink = Arc<dyn Fn(LogLine) + Send + Sync>;
+
 /// A locally-owned server process.
 struct LocalServer {
     child: Child,
@@ -142,7 +146,7 @@ pub struct Supervisor {
     inner: Mutex<Inner>,
     /// Called for every captured log line, so the UI can stream engine output
     /// live. Kept as a plain callback to leave Tauri types out of this module.
-    on_log: Mutex<Option<Arc<dyn Fn(LogLine) + Send + Sync>>>,
+    on_log: Mutex<Option<LogSink>>,
 }
 
 impl Default for Supervisor {
@@ -167,7 +171,7 @@ impl Supervisor {
         }
     }
 
-    pub fn set_log_sink(&self, sink: Arc<dyn Fn(LogLine) + Send + Sync>) {
+    pub fn set_log_sink(&self, sink: LogSink) {
         *self.on_log.lock().unwrap() = Some(sink);
     }
 
@@ -319,10 +323,7 @@ impl Supervisor {
 
         self.push_log(
             LogStream::Supervisor,
-            format!(
-                "$ {}",
-                config.display_command(&caps.binary, caps.telemetry)
-            ),
+            format!("$ {}", config.display_command(&caps.binary, caps.telemetry)),
         );
         if config.telemetry && !caps.telemetry {
             // Say it out loud rather than quietly showing a flow view built on
@@ -351,8 +352,7 @@ impl Supervisor {
         self.capture(child.stdout.take(), LogStream::Stdout);
         self.capture(child.stderr.take(), LogStream::Stderr);
 
-        let endpoint =
-            Endpoint::local(config.port).with_api_key(config.api_key.clone());
+        let endpoint = Endpoint::local(config.port).with_api_key(config.api_key.clone());
         {
             let mut inner = self.inner.lock().unwrap();
             inner.started = Instant::now();

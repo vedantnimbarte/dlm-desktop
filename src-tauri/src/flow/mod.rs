@@ -335,7 +335,10 @@ mod tests {
         let a = Aggregator::new();
         let s = a.state();
         assert!(!s.active);
-        assert_eq!(s.sampled_fraction, 1.0, "nothing lost when nothing produced");
+        assert_eq!(
+            s.sampled_fraction, 1.0,
+            "nothing lost when nothing produced"
+        );
         assert!(s.transfer_vs_compute().is_none());
     }
 
@@ -408,7 +411,11 @@ mod tests {
         let mut evict = ev(10, 3, Stage::Evict, 0, 0);
         evict.victim = Some(0);
         a.ingest(
-            vec![ev(0, 0, Stage::MmapRead, 100, 5), ev(5, 3, Stage::MmapRead, 100, 5), evict],
+            vec![
+                ev(0, 0, Stage::MmapRead, 100, 5),
+                ev(5, 3, Stage::MmapRead, 100, 5),
+                evict,
+            ],
             0,
         );
         let s = a.state();

@@ -83,26 +83,19 @@ fn chat_streams_tokens_and_finishes() {
     let mut finished = false;
     let cancel = Cancel::new();
 
-    client::chat_stream(
-        &endpoint,
-        &model,
-        &messages,
-        &sampling,
-        &cancel,
-        |event| {
-            match event {
-                ChatEvent::Delta(d) => {
-                    deltas += 1;
-                    text.push_str(&d);
-                }
-                ChatEvent::Finished { reason, usage } => {
-                    finished = true;
-                    eprintln!("finish_reason={reason:?} usage={usage:?}");
-                }
+    client::chat_stream(&endpoint, &model, &messages, &sampling, &cancel, |event| {
+        match event {
+            ChatEvent::Delta(d) => {
+                deltas += 1;
+                text.push_str(&d);
             }
-            Flow::Continue
-        },
-    )
+            ChatEvent::Finished { reason, usage } => {
+                finished = true;
+                eprintln!("finish_reason={reason:?} usage={usage:?}");
+            }
+        }
+        Flow::Continue
+    })
     .expect("chat stream failed");
 
     eprintln!("{deltas} deltas, {} chars: {text:?}", text.len());
@@ -131,23 +124,16 @@ fn cancel_stops_a_stream_early() {
 
     let cancel = Cancel::new();
     let mut deltas = 0usize;
-    let result = client::chat_stream(
-        &endpoint,
-        &model,
-        &messages,
-        &sampling,
-        &cancel,
-        |event| {
-            if let ChatEvent::Delta(_) = event {
-                deltas += 1;
-                // Trip the flag partway through, exactly as the Stop button does.
-                if deltas == 3 {
-                    cancel.cancel();
-                }
+    let result = client::chat_stream(&endpoint, &model, &messages, &sampling, &cancel, |event| {
+        if let ChatEvent::Delta(_) = event {
+            deltas += 1;
+            // Trip the flag partway through, exactly as the Stop button does.
+            if deltas == 3 {
+                cancel.cancel();
             }
-            Flow::Continue
-        },
-    );
+        }
+        Flow::Continue
+    });
 
     assert!(
         matches!(result, Err(client::HttpError::Cancelled)),

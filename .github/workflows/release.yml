@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build (e.g. v0.1.0)
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bundle:
+    name: bundle (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-x86_64
+            args: ""
+          - os: ubuntu-22.04
+            target: linux-x86_64
+            args: ""
+          # Both Mac architectures: an Intel-only build would silently run
+          # under Rosetta on Apple Silicon, which is the majority of Macs now.
+          - os: macos-latest
+            target: macos-aarch64
+            args: "--target aarch64-apple-darwin"
+          - os: macos-latest
+            target: macos-x86_64
+            args: "--target x86_64-apple-darwin"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          path: dlm-desktop
+
+      # Release builds must pin the engine, not track a moving branch: a
+      # desktop binary is only meaningful against an engine version it was
+      # tested with. DLM_ENGINE_REF is set per release.
+      - uses: actions/checkout@v4
+        with:
+          repository: vedantnimbarte/dlm
+          ref: ${{ vars.DLM_ENGINE_REF || 'main' }}
+          path: dlm
+
+      - name: Install Linux system dependencies
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target == 'macos-aarch64' && 'aarch64-apple-darwin' || matrix.target == 'macos-x86_64' && 'x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dlm-desktop/src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dlm-desktop/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: dlm-desktop
+        run: npm ci
+
+      - name: Build and bundle
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Code signing. Absent secrets produce an unsigned bundle rather than
+          # a failed build, so a fork can still cut a usable artifact.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: dlm-desktop
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: dlm-desktop ${{ github.event.inputs.tag || github.ref_name }}
+          releaseBody: |
+            Desktop UI for dlm.
+
+            Requires a `dlm` binary on PATH (or set its location in Settings).
+            The per-layer flow view additionally needs an engine built with
+            `--telemetry` support; without it the app says so in the status bar
+            rather than showing an animation built on numbers the engine never
+            reported.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

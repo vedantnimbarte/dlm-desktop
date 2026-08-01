@@ -243,7 +243,15 @@ impl Store {
         conn.execute(
             "INSERT INTO messages (id, conversation_id, seq, role, content, ts, meta_json)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![m.id, m.conversation_id, m.seq, m.role, m.content, m.ts, m.meta],
+            params![
+                m.id,
+                m.conversation_id,
+                m.seq,
+                m.role,
+                m.content,
+                m.ts,
+                m.meta
+            ],
         )?;
         conn.execute(
             "UPDATE conversations SET updated = ?2 WHERE id = ?1",
@@ -468,7 +476,8 @@ mod tests {
         // Insert out of order to prove the ORDER BY, not the insert order.
         s.append_message(&msg(&c, "m2", 1, "assistant", "second"))
             .unwrap();
-        s.append_message(&msg(&c, "m1", 0, "user", "first")).unwrap();
+        s.append_message(&msg(&c, "m1", 0, "user", "first"))
+            .unwrap();
 
         let msgs = s.messages(&c).unwrap();
         assert_eq!(
@@ -511,14 +520,8 @@ mod tests {
     #[test]
     fn search_finds_a_message_and_marks_the_hit() {
         let (s, c) = store_with_one_conversation();
-        s.append_message(&msg(
-            &c,
-            "m1",
-            0,
-            "user",
-            "how does layer streaming work",
-        ))
-        .unwrap();
+        s.append_message(&msg(&c, "m1", 0, "user", "how does layer streaming work"))
+            .unwrap();
 
         let hits = s.search("streaming", 10).unwrap();
         assert_eq!(hits.len(), 1);
@@ -541,14 +544,16 @@ mod tests {
     #[test]
     fn empty_search_returns_nothing_rather_than_everything() {
         let (s, c) = store_with_one_conversation();
-        s.append_message(&msg(&c, "m1", 0, "user", "content")).unwrap();
+        s.append_message(&msg(&c, "m1", 0, "user", "content"))
+            .unwrap();
         assert!(s.search("   ", 10).unwrap().is_empty());
     }
 
     #[test]
     fn updating_a_message_reindexes_it() {
         let (s, c) = store_with_one_conversation();
-        s.append_message(&msg(&c, "m1", 0, "assistant", "")).unwrap();
+        s.append_message(&msg(&c, "m1", 0, "assistant", ""))
+            .unwrap();
         s.update_message("m1", "the finished answer", Some(r#"{"tokensPerSec":4.2}"#))
             .unwrap();
 
@@ -569,9 +574,12 @@ mod tests {
     #[test]
     fn truncate_from_drops_the_tail_for_regenerate() {
         let (s, c) = store_with_one_conversation();
-        s.append_message(&msg(&c, "m1", 0, "user", "alpha")).unwrap();
-        s.append_message(&msg(&c, "m2", 1, "assistant", "bravo")).unwrap();
-        s.append_message(&msg(&c, "m3", 2, "user", "charlie")).unwrap();
+        s.append_message(&msg(&c, "m1", 0, "user", "alpha"))
+            .unwrap();
+        s.append_message(&msg(&c, "m2", 1, "assistant", "bravo"))
+            .unwrap();
+        s.append_message(&msg(&c, "m3", 2, "user", "charlie"))
+            .unwrap();
 
         s.truncate_from(&c, 1).unwrap();
 

@@ -149,8 +149,7 @@ mod tests {
     /// default rather than fail the whole batch.
     #[test]
     fn omitted_optional_fields_default() {
-        let e: FlowEvent =
-            serde_json::from_str(r#"{"layer":1,"stage":"compute"}"#).unwrap();
+        let e: FlowEvent = serde_json::from_str(r#"{"layer":1,"stage":"compute"}"#).unwrap();
         assert_eq!(e.dur_us, 0);
         assert!(e.victim.is_none());
         assert!(e.depth.is_none());
@@ -197,10 +196,9 @@ mod tests {
 
     #[test]
     fn batch_carries_the_drop_count() {
-        let b: Batch = serde_json::from_str(
-            r#"{"events":[{"layer":1,"stage":"ramHit"}],"dropped":42}"#,
-        )
-        .unwrap();
+        let b: Batch =
+            serde_json::from_str(r#"{"events":[{"layer":1,"stage":"ramHit"}],"dropped":42}"#)
+                .unwrap();
         assert_eq!(b.events.len(), 1);
         assert_eq!(b.dropped, 42);
     }

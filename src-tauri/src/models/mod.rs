@@ -207,7 +207,7 @@ pub fn scan(root: &Path) -> Result<Vec<LocalModel>> {
             }
         }
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|m| m.name.to_lowercase());
     Ok(out)
 }
 
@@ -259,9 +259,7 @@ fn quant_availability(
         return Ok(requested);
     }
     if native == QuantScheme::Int4 && is_packed_int4 {
-        return Err(
-            "already a packed 4-bit checkpoint; it loads at its own int4 precision".into(),
-        );
+        return Err("already a packed 4-bit checkpoint; it loads at its own int4 precision".into());
     }
     match requested {
         QuantScheme::Int4 | QuantScheme::Int8 => Ok(requested),
@@ -468,9 +466,6 @@ mod tests {
     fn describing_a_directory_without_a_config_is_an_error() {
         let tmp = std::env::temp_dir().join("dlm-desktop-test-empty");
         let _ = std::fs::create_dir_all(&tmp);
-        assert!(matches!(
-            describe(&tmp),
-            Err(ModelError::NoConfig(_))
-        ));
+        assert!(matches!(describe(&tmp), Err(ModelError::NoConfig(_))));
     }
 }

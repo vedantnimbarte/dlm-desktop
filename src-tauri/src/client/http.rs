@@ -158,13 +158,12 @@ impl Endpoint {
                     "no address resolved",
                 ),
             })?;
-        let sock =
-            TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).map_err(|source| {
-                HttpError::Connect {
-                    addr: authority,
-                    source,
-                }
-            })?;
+        let sock = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).map_err(|source| {
+            HttpError::Connect {
+                addr: authority,
+                source,
+            }
+        })?;
         // Token-at-a-time SSE frames are small; Nagle would batch them into
         // latency the user reads as stutter.
         let _ = sock.set_nodelay(true);
@@ -641,7 +640,10 @@ mod tests {
     #[test]
     fn status_line_parsing() {
         assert_eq!(parse_status_line("HTTP/1.1 200 OK\r\n").unwrap(), 200);
-        assert_eq!(parse_status_line("HTTP/1.0 404 Not Found\r\n").unwrap(), 404);
+        assert_eq!(
+            parse_status_line("HTTP/1.0 404 Not Found\r\n").unwrap(),
+            404
+        );
         assert!(parse_status_line("garbage\r\n").is_err());
     }
 }
