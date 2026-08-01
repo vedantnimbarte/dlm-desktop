@@ -71,6 +71,12 @@ jobs:
         working-directory: dlm-desktop
         run: npx tsc --noEmit
 
+      # The reasoning-block parser has real edge cases (tags split across
+      # tokens, a close tag with no opener) and is pure, so it is unit-tested.
+      - name: Test frontend
+        working-directory: dlm-desktop
+        run: npm test
+
       - name: Build frontend
         working-directory: dlm-desktop
         run: npm run build

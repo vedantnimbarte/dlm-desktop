@@ -11,12 +11,23 @@
 import { useCallback, useEffect, useRef } from "react";
 import { api, errorMessage, listenChat } from "./api";
 import { useStore, nextId } from "./store";
+import { answerOnly, isThinking } from "./thinking";
 import type { ChatMessage, UiMessage } from "./types";
 
-/** request id -> where its tokens belong. */
+/** request id -> where its tokens belong, plus reasoning timing.
+ *
+ * `startedAt` is set when the turn begins and `thinkingMs` when the reasoning
+ * block closes, so "Thought for 4.2s" is measured rather than inferred from the
+ * total. */
 const inFlight = new Map<
   number,
-  { conversationId: string; messageId: string }
+  {
+    conversationId: string;
+    messageId: string;
+    startedAt: number;
+    thinkingMs?: number;
+    wasThinking: boolean;
+  }
 >();
 
 /** Persist a finished assistant turn, body and measurements together. */
@@ -47,9 +58,25 @@ export function useChat() {
       onDelta: ({ requestId, text }) => {
         const target = inFlight.get(requestId);
         if (!target) return;
-        useStore
-          .getState()
-          .appendToMessage(target.conversationId, target.messageId, text);
+        const store = useStore.getState();
+        store.appendToMessage(target.conversationId, target.messageId, text);
+
+        // Time the reasoning block by watching for the moment it closes.
+        // Reading the accumulated content back is what makes this correct for a
+        // tag that arrives split across several tokens.
+        if (target.thinkingMs === undefined) {
+          const message = useStore
+            .getState()
+            .conversations.find((c) => c.id === target.conversationId)
+            ?.messages.find((m) => m.id === target.messageId);
+          if (message) {
+            const thinkingNow = isThinking(message.content);
+            if (target.wasThinking && !thinkingNow) {
+              target.thinkingMs = Date.now() - target.startedAt;
+            }
+            target.wasThinking = target.wasThinking || thinkingNow;
+          }
+        }
       },
       onDone: (e) => {
         const target = inFlight.get(e.requestId);
@@ -64,6 +91,7 @@ export function useChat() {
             completionTokens: e.completionTokens,
             ttftMs: e.ttftMs,
             tokensPerSec: e.tokensPerSec,
+            thinkingMs: target.thinkingMs ?? null,
           },
         });
         persistFinished(target.conversationId, target.messageId);
@@ -125,10 +153,18 @@ export function useChat() {
     // The server is stateless, so every turn replays the whole conversation.
     // Messages that errored out carry no usable assistant text and are dropped
     // rather than sent as empty turns.
+    // Reasoning is stripped from replayed history. A model's chain of thought
+    // is scratchpad, not conversation: feeding it back wastes context and,
+    // on reasoning models, degrades the next answer. The raw text stays in the
+    // store — only what goes over the wire is trimmed.
     const history: ChatMessage[] = [
       ...conversation.messages
-        .filter((m) => !m.error && m.content.length > 0)
-        .map((m) => ({ role: m.role, content: m.content })),
+        .filter((m) => !m.error)
+        .map((m) => ({
+          role: m.role,
+          content: m.role === "assistant" ? answerOnly(m.content) : m.content,
+        }))
+        .filter((m) => m.content.length > 0),
       { role: "user" as const, content: text },
     ];
 
@@ -154,7 +190,12 @@ export function useChat() {
         history,
         useStore.getState().sampling,
       );
-      inFlight.set(requestId, { conversationId, messageId: assistantId });
+      inFlight.set(requestId, {
+        conversationId,
+        messageId: assistantId,
+        startedAt: Date.now(),
+        wasThinking: false,
+      });
       useStore.getState().setActiveRequestId(requestId);
     } catch (e) {
       useStore.getState().patchMessage(conversationId, assistantId, {

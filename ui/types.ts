@@ -110,6 +110,8 @@ export interface UiMessage extends ChatMessage {
     completionTokens?: number | null;
     ttftMs?: number | null;
     tokensPerSec?: number | null;
+    /** Wall-clock spent inside a reasoning block, when the model emitted one. */
+    thinkingMs?: number | null;
   };
 }
 

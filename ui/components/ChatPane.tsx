@@ -2,11 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { useActiveConversation, useStore } from "../store";
 import { useChat } from "../useChat";
 import Message from "./Message";
+import { hasThinking } from "../thinking";
 
 export default function ChatPane() {
   const conversation = useActiveConversation();
   const status = useStore((s) => s.status);
   const activeRequestId = useStore((s) => s.activeRequestId);
+  const showThinking = useStore((s) => s.showThinking);
+  const setShowThinking = useStore((s) => s.setShowThinking);
+  const expandThinking = useStore((s) => s.expandThinking);
+  const setExpandThinking = useStore((s) => s.setExpandThinking);
   const { send, stop, regenerate } = useChat();
 
   const [draft, setDraft] = useState("");
@@ -40,6 +45,9 @@ export default function ChatPane() {
   };
 
   const messages = conversation?.messages ?? [];
+  const conversationHasThinking = messages.some(
+    (m) => m.role === "assistant" && hasThinking(m.content),
+  );
 
   return (
     <main className="chat">
@@ -53,6 +61,38 @@ export default function ChatPane() {
           </span>
         )}
         <span className="spacer" />
+
+        {/* Only offered when this conversation actually contains reasoning —
+            a toggle for something that never appears is just clutter. */}
+        {conversationHasThinking && (
+          <>
+            <button
+              className="ghost"
+              title={
+                showThinking
+                  ? "Hide the model's reasoning"
+                  : "Show the model's reasoning"
+              }
+              onClick={() => setShowThinking(!showThinking)}
+            >
+              {showThinking ? "Hide thinking" : "Show thinking"}
+            </button>
+            {showThinking && (
+              <button
+                className="ghost"
+                title={
+                  expandThinking
+                    ? "Collapse reasoning once the answer starts"
+                    : "Keep reasoning expanded"
+                }
+                onClick={() => setExpandThinking(!expandThinking)}
+              >
+                {expandThinking ? "Collapse" : "Expand"}
+              </button>
+            )}
+          </>
+        )}
+
         <button
           className="ghost"
           title="Discard the last answer and ask again"

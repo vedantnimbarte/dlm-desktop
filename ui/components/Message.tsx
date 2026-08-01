@@ -1,4 +1,7 @@
+import { useStore } from "../store";
+import { splitThinking } from "../thinking";
 import type { UiMessage } from "../types";
+import ThinkingBlock from "./ThinkingBlock";
 
 /** Split on ``` fences so code arrives as real blocks.
  *
@@ -19,22 +22,67 @@ function stripLanguageTag(code: string): string {
   return /^[a-zA-Z0-9_+-]{1,20}$/.test(first) ? code.slice(nl + 1) : code;
 }
 
+function Prose({ text }: { text: string }) {
+  return (
+    <>
+      {segments(text).map((seg, i) =>
+        seg.code ? (
+          <pre key={i}>
+            <code>{stripLanguageTag(seg.text)}</code>
+          </pre>
+        ) : (
+          <span key={i}>{seg.text}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 export default function Message({ message }: { message: UiMessage }) {
   const { role, content, streaming, error, stats } = message;
+  const showThinking = useStore((s) => s.showThinking);
+  const expandThinking = useStore((s) => s.expandThinking);
+
+  // A user turn is never a reasoning stream; parsing it would only risk
+  // mangling a message that legitimately mentions <think>.
+  const parts =
+    role === "assistant"
+      ? splitThinking(content, streaming)
+      : [{ kind: "answer" as const, text: content }];
+
+  const visible = showThinking
+    ? parts
+    : parts.filter((p) => p.kind !== "thinking");
+
+  // While a hidden reasoning block is the only thing produced so far, the
+  // message would otherwise render as an empty bubble — which is exactly how
+  // this model looked before reasoning was handled at all.
+  const nothingVisibleYet =
+    streaming && visible.every((p) => p.text.trim().length === 0);
 
   return (
     <div className={`msg ${role}`}>
       <div className="msg-role">{role === "user" ? "You" : "AI"}</div>
       <div className="msg-body">
         <div className="msg-content">
-          {segments(content).map((seg, i) =>
-            seg.code ? (
-              <pre key={i}>
-                <code>{stripLanguageTag(seg.text)}</code>
-              </pre>
+          {visible.map((part, i) =>
+            part.kind === "thinking" ? (
+              <ThinkingBlock
+                key={i}
+                segment={part}
+                thinkingMs={stats?.thinkingMs}
+                defaultOpen={expandThinking}
+              />
             ) : (
-              <span key={i}>{seg.text}</span>
+              <Prose key={i} text={part.text} />
             ),
+          )}
+          {nothingVisibleYet && (
+            <span className="dim">
+              {parts.some((p) => p.kind === "thinking")
+                ? "Thinking… (reasoning hidden)"
+                : ""}
+            </span>
           )}
           {streaming && <span className="caret" />}
         </div>
@@ -49,6 +97,9 @@ export default function Message({ message }: { message: UiMessage }) {
             {stats.ttftMs != null && <span>{stats.ttftMs} ms to first token</span>}
             {stats.completionTokens != null && (
               <span>{stats.completionTokens} tokens</span>
+            )}
+            {stats.thinkingMs != null && (
+              <span>{(stats.thinkingMs / 1000).toFixed(1)}s thinking</span>
             )}
             {stats.reason === "length" && <span>hit max_tokens</span>}
             {stats.reason === "cancelled" && <span>stopped</span>}

@@ -102,6 +102,14 @@ interface AppStore {
   setApiLog: (entries: ApiLogEntry[]) => void;
   pushApiLog: (entry: ApiLogEntry) => void;
 
+  // --- reasoning display ---------------------------------------------------
+  /** Show reasoning blocks at all. */
+  showThinking: boolean;
+  /** Keep them expanded instead of collapsing once the answer starts. */
+  expandThinking: boolean;
+  setShowThinking: (v: boolean) => void;
+  setExpandThinking: (v: boolean) => void;
+
   // --- ui -----------------------------------------------------------------
   rightPanel: RightPanel;
   setRightPanel: (p: RightPanel) => void;
@@ -363,6 +371,19 @@ export const useStore = create<AppStore>((set, get) => ({
   setApiLog: (apiLog) => set({ apiLog }),
   pushApiLog: (entry) => set((s) => ({ apiLog: [entry, ...s.apiLog] })),
 
+  // Reasoning is shown but collapsed by default: visible enough to notice the
+  // model is working, quiet enough not to bury the answer.
+  showThinking: loadFlag("dlm.showThinking", true),
+  expandThinking: loadFlag("dlm.expandThinking", false),
+  setShowThinking: (showThinking) => {
+    saveFlag("dlm.showThinking", showThinking);
+    set({ showThinking });
+  },
+  setExpandThinking: (expandThinking) => {
+    saveFlag("dlm.expandThinking", expandThinking);
+    set({ expandThinking });
+  },
+
   rightPanel: "model",
   setRightPanel: (rightPanel) => set({ rightPanel }),
   flowOpen: false,
@@ -374,6 +395,26 @@ export function useActiveConversation(): Conversation | null {
   return useStore(
     (s) => s.conversations.find((c) => c.id === s.activeId) ?? null,
   );
+}
+
+/** Display preferences live in localStorage rather than the SQLite store: they
+ *  are per-machine UI state, not conversation data, and must be readable
+ *  synchronously during the first render. */
+function loadFlag(key: string, fallback: boolean): boolean {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? fallback : raw === "true";
+  } catch {
+    return fallback;
+  }
+}
+
+function saveFlag(key: string, value: boolean) {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    /* private mode or a locked-down webview; the setting just will not stick */
+  }
 }
 
 function summarize(text: string): string {
