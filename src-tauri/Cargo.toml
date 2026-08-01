@@ -1,0 +1,43 @@
+[package]
+name = "dlm-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Desktop UI for dlm — chat, model management, and a measured view of layer streaming"
+license = "Apache-2.0"
+# Matches dlm's own floor; we link the crate, so we cannot be lower.
+rust-version = "1.85"
+
+[lib]
+name = "dlm_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+
+# The engine, linked as a library for the work that must happen *before* a
+# server exists: reading the local model catalog, planning VRAM, tokenizing.
+# Inference itself runs in a spawned `dlm serve` (see src/engine).
+#
+# Path dependency while the telemetry work (A1–A5) is developed in lockstep
+# across both repos. Switch to `{ git = "https://github.com/vedantnimbarte/dlm",
+# tag = "vX.Y.Z" }` for release builds, so a shipped desktop binary is pinned to
+# an engine version it was actually tested against.
+dlm = { path = "../../dlm" }
+
+# NOTE: there is deliberately no HTTP client crate here. dlm speaks plain
+# HTTP/1.1 with no TLS, so `src/client` is ~300 lines over std::net::TcpStream.
+# That keeps the dependency tree close to dlm's own ethos and gives us exact
+# control over SSE framing, which is what the telemetry stream needs.
+
+[features]
+default = []
+
+[profile.release]
+strip = true
+lto = "thin"
