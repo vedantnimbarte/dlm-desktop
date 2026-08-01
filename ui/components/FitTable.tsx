@@ -9,6 +9,8 @@ import { formatBytes } from "../format";
  * invented — so it agrees with what `dlm profile` would print. */
 export default function FitTable({ fit }: { fit: FitPreview }) {
   const { vram, rows, model } = fit;
+  /** Rows that actually produced a plan. */
+  const planned = rows.filter((r) => r.available);
 
   return (
     <div className="fit">
@@ -16,7 +18,7 @@ export default function FitTable({ fit }: { fit: FitPreview }) {
         {vram.kind === "device" && (
           <>
             Planning against <strong>{formatBytes(vram.free)}</strong> free of{" "}
-            {formatBytes(vram.total)} on the device.
+            {formatBytes(vram.total)}, reported by the {vram.via}.
           </>
         )}
         {vram.kind === "manual" && (
@@ -86,18 +88,22 @@ export default function FitTable({ fit }: { fit: FitPreview }) {
       </table>
 
       <div className="fit-notes">
-        {rows.some((r) => r.available && r.fitsEntirely) ? (
-          <div className="note ok-text">
-            At least one precision holds the whole model — no streaming, which
-            is several times faster.
-          </div>
-        ) : (
-          <div className="note warn-text">
-            Every precision streams at this budget. Streaming cost is bandwidth:
-            the fewer layers stay resident, the more of the model crosses the bus
-            each token.
-          </div>
-        )}
+        {/* Say nothing when nothing was planned. Claiming "every precision
+            streams at this budget" with no budget and no rows would be exactly
+            the kind of confident fabrication this panel exists to avoid. */}
+        {planned.length > 0 &&
+          (planned.some((r) => r.fitsEntirely) ? (
+            <div className="note ok-text">
+              At least one precision holds the whole model — no streaming, which
+              is several times faster.
+            </div>
+          ) : (
+            <div className="note warn-text">
+              Every precision streams at this budget. Streaming cost is
+              bandwidth: the fewer layers stay resident, the more of the model
+              crosses the bus each token.
+            </div>
+          ))}
 
         {model.isMoe && (
           <div className="note">

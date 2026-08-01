@@ -196,7 +196,7 @@ fn without_a_vram_figure_rows_are_marked_unavailable() {
             );
         }
         // A GPU is present: the device figure is a legitimate basis for a plan.
-        VramSource::Device { free, total } => {
+        VramSource::Device { free, total, .. } => {
             eprintln!("device VRAM: {:.2} / {:.2} GiB free", gib(free), gib(total));
             assert!(total > 0);
         }

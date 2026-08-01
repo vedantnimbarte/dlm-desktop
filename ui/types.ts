@@ -184,7 +184,7 @@ export interface LocalModel {
 }
 
 export type VramSource =
-  | { kind: "device"; free: number; total: number }
+  | { kind: "device"; free: number; total: number; via: string }
   | { kind: "manual"; bytes: number }
   | { kind: "unavailable"; reason: string };
 

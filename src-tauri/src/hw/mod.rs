@@ -285,6 +285,24 @@ fn describe_throttle(reasons: nvml_wrapper::bitmasks::device::ThrottleReasons) -
     out
 }
 
+/// Free and total VRAM on the primary GPU, plus its name.
+///
+/// A one-shot query separate from [`HwMonitor`], because VRAM planning happens
+/// before any connection exists and must not depend on the poller's lifecycle.
+///
+/// This matters more than it looks: the `dlm` crate linked into this app is
+/// usually a CPU-only build, so `dlm::gpu::mem_get_info` returns
+/// `GpuUnavailable` even on a machine with a perfectly good card. NVML talks to
+/// the driver rather than the CUDA toolkit, so it answers where the engine's
+/// own query cannot.
+pub fn primary_gpu_memory() -> Option<(u64, u64, String)> {
+    let nvml = nvml_wrapper::Nvml::init().ok()?;
+    let device = nvml.device_by_index(0).ok()?;
+    let mem = device.memory_info().ok()?;
+    let name = device.name().unwrap_or_else(|_| "GPU 0".into());
+    Some((mem.free, mem.total, name))
+}
+
 /// Process-wide hardware poller.
 pub struct HwMonitor {
     source: Mutex<Box<dyn HwSource>>,

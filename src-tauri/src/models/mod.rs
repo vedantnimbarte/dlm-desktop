@@ -49,8 +49,9 @@ pub struct LocalModel {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum VramSource {
-    /// Queried from the live device.
-    Device { free: u64, total: u64 },
+    /// Queried from the live device. `via` names which query answered, since
+    /// the engine's own and the driver's can disagree about availability.
+    Device { free: u64, total: u64, via: String },
     /// The user's `--vram-budget-gb`.
     Manual { bytes: u64 },
     /// No GPU and no manual budget: no plan can be computed.
@@ -221,14 +222,28 @@ pub fn vram_source(manual_budget_gb: Option<f64>) -> VramSource {
             bytes: (gb * (1u64 << 30) as f64) as u64,
         };
     }
-    match dlm::gpu::mem_get_info() {
-        Ok(mem) => VramSource::Device {
+    // The engine's own query first: it reports what the engine would actually
+    // see, which is the figure a plan should be built on when it is available.
+    if let Ok(mem) = dlm::gpu::mem_get_info() {
+        return VramSource::Device {
             free: mem.free,
             total: mem.total,
-        },
-        Err(e) => VramSource::Unavailable {
-            reason: e.to_string(),
-        },
+            via: "engine".into(),
+        };
+    }
+    // Fall back to the driver. A CPU-only dlm build cannot query VRAM, but that
+    // says nothing about whether a GPU exists — and refusing to plan for a card
+    // that is sitting right there would make the fit table useless on exactly
+    // the machines it is most useful for.
+    if let Some((free, total, name)) = crate::hw::primary_gpu_memory() {
+        return VramSource::Device {
+            free,
+            total,
+            via: format!("driver ({name})"),
+        };
+    }
+    VramSource::Unavailable {
+        reason: "no GPU detected, and this dlm build cannot query VRAM".into(),
     }
 }
 
@@ -442,12 +457,32 @@ mod tests {
         );
     }
 
-    /// A manual budget overrides the device, exactly as `--vram-budget-gb` does.
+    /// A manual budget overrides every device query, exactly as
+    /// `--vram-budget-gb` does.
     #[test]
     fn manual_budget_wins_over_the_device_query() {
         match vram_source(Some(6.0)) {
             VramSource::Manual { bytes } => assert_eq!(bytes, 6 * (1 << 30)),
             other => panic!("expected Manual, got {other:?}"),
+        }
+    }
+
+    /// With no manual budget the answer depends on the machine, but it must
+    /// always be coherent: a reported device has a non-zero total and free no
+    /// greater than it, and an unavailable source explains itself. Never a
+    /// fabricated figure.
+    #[test]
+    fn an_automatic_vram_figure_is_coherent_or_absent() {
+        match vram_source(None) {
+            VramSource::Device { free, total, via } => {
+                assert!(total > 0, "a device must report a total");
+                assert!(free <= total, "free cannot exceed total");
+                assert!(!via.is_empty(), "the figure must name its source");
+            }
+            VramSource::Unavailable { reason } => {
+                assert!(!reason.is_empty(), "absence must explain itself");
+            }
+            VramSource::Manual { .. } => panic!("no manual budget was given"),
         }
     }
 

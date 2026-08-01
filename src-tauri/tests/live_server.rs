@@ -152,7 +152,13 @@ fn discovery_finds_a_running_engine_on_the_default_port() {
         return;
     }
     let found = dlm_desktop_lib::engine::discover_local_servers();
-    assert!(!found.is_empty(), "a server is running but was not discovered");
-    eprintln!("discovered: {} serving {}", found[0].address, found[0].model_id);
+    assert!(
+        !found.is_empty(),
+        "a server is running but was not discovered"
+    );
+    eprintln!(
+        "discovered: {} serving {}",
+        found[0].address, found[0].model_id
+    );
     assert!(!found[0].model_id.is_empty(), "a hit must name its model");
 }
