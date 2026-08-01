@@ -36,6 +36,15 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// Refuse absurd header blocks rather than growing a buffer without bound.
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 
+/// Cap on a single SSE frame's bytes.
+///
+/// Deliberately much larger than [`MAX_HEADER_BYTES`]: a telemetry batch is one
+/// `data:` line carrying up to a thousand events, which runs to a few hundred
+/// kilobytes. Reusing the header limit here silently aborted the stream exactly
+/// when there was activity to report — the frame never completed before the
+/// buffer hit the cap.
+const MAX_SSE_FRAME_BYTES: usize = 8 * 1024 * 1024;
+
 /// Cap on a buffered (non-streaming) response body. Generous for `/v1/models`
 /// and a completion, and far below anything that would exhaust memory.
 const MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
@@ -382,8 +391,11 @@ pub fn stream_sse(
                         }
                     }
                 }
-                if pending.len() > MAX_HEADER_BYTES {
-                    return Err(HttpError::Protocol("unterminated SSE frame".into()));
+                if pending.len() > MAX_SSE_FRAME_BYTES {
+                    return Err(HttpError::Protocol(format!(
+                        "unterminated SSE frame ({} bytes)",
+                        pending.len()
+                    )));
                 }
             }
             Err(e)
@@ -604,6 +616,20 @@ mod tests {
     fn comment_frames_are_skipped() {
         assert!(parse_frame(b": keep-alive").is_none());
         assert!(parse_frame(b"").is_none());
+    }
+
+    /// Regression: telemetry batches are a single `data:` line running to
+    /// hundreds of kilobytes. Capping SSE frames at the header limit aborted
+    /// the stream precisely when there was activity to report.
+    #[test]
+    fn a_frame_far_larger_than_the_header_limit_is_accepted() {
+        let big = "x".repeat(MAX_HEADER_BYTES * 3);
+        let raw = format!("event: flow\ndata: {big}\n\n");
+        let (frame_bytes, rest) = split_frame(raw.as_bytes()).expect("frame completes");
+        assert!(rest.is_empty());
+        let frame = parse_frame(&frame_bytes).unwrap();
+        assert_eq!(frame.event.as_deref(), Some("flow"));
+        assert_eq!(frame.data.len(), big.len());
     }
 
     #[test]

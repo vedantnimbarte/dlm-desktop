@@ -105,6 +105,10 @@ interface AppStore {
   // --- ui -----------------------------------------------------------------
   rightPanel: RightPanel;
   setRightPanel: (p: RightPanel) => void;
+  /** Whether the flow panel is open. Closing it also unsubscribes from
+   *  telemetry, which is what makes the engine stop collecting. */
+  flowOpen: boolean;
+  setFlowOpen: (open: boolean) => void;
 }
 
 export const useStore = create<AppStore>((set, get) => ({
@@ -361,6 +365,8 @@ export const useStore = create<AppStore>((set, get) => ({
 
   rightPanel: "model",
   setRightPanel: (rightPanel) => set({ rightPanel }),
+  flowOpen: false,
+  setFlowOpen: (flowOpen) => set({ flowOpen }),
 }));
 
 /** Selector for the open conversation. */

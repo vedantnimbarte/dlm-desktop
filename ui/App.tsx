@@ -5,6 +5,7 @@ import Sidebar from "./components/Sidebar";
 import ChatPane from "./components/ChatPane";
 import RightPanel from "./components/RightPanel";
 import StatusBar from "./components/StatusBar";
+import FlowView from "./components/FlowView";
 
 /** Status is polled rather than pushed: a model load has no natural event, and
  * this is also what surfaces a crashed engine (the backend detects a dead child
@@ -19,6 +20,7 @@ export default function App() {
   const pushLog = useStore((s) => s.pushLog);
   const setLogs = useStore((s) => s.setLogs);
   const pushApiLog = useStore((s) => s.pushApiLog);
+  const flowOpen = useStore((s) => s.flowOpen);
 
   // One-time boot: find the engine, load defaults, start an empty chat.
   useEffect(() => {
@@ -121,10 +123,15 @@ export default function App() {
   }, [setStatus]);
 
   return (
-    <div className="app">
+    <div className={`app${flowOpen ? " flow-open" : ""}`}>
       <Sidebar />
       <ChatPane />
       <RightPanel />
+      {flowOpen && (
+        <section className="flow-panel">
+          <FlowView />
+        </section>
+      )}
       <StatusBar />
     </div>
   );

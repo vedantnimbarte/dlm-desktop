@@ -28,6 +28,16 @@ thiserror = "1"
 # runtime in front of a user.
 rusqlite = { version = "0.40", features = ["bundled"] }
 
+# Host hardware counters for the flow view's diagnostics. Both are optional at
+# runtime, not at build time: every backend degrades to "unavailable" rather
+# than reporting a fabricated number, because a made-up PCIe width would
+# produce a confident and wrong diagnosis.
+#
+# nvml-wrapper needs only the NVIDIA driver (not the CUDA toolkit) and loads it
+# dynamically, so this still builds and runs on a machine with no NVIDIA GPU.
+nvml-wrapper = "0.10"
+sysinfo = "0.32"
+
 # The engine, linked as a library for the work that must happen *before* a
 # server exists: reading the local model catalog, planning VRAM, tokenizing.
 # Inference itself runs in a spawned `dlm serve` (see src/engine).

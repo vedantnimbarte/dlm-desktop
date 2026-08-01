@@ -230,3 +230,103 @@ export interface ErrorEvent {
   requestId: number;
   message: string;
 }
+
+// --- flow telemetry --------------------------------------------------------
+
+export type Residency = "absent" | "resident" | "prefetched" | "evicted";
+
+export interface StageStat {
+  events: number;
+  bytes: number;
+  totalUs: number;
+  /** Bytes/sec while the stage was running. Null when it moves no bytes. */
+  bytesPerSec: number | null;
+  /** Duration is wall-clock, not device-measured — render as an estimate. */
+  estimated: boolean;
+}
+
+export interface LayerState {
+  layer: number;
+  residency: Residency;
+  lastSeenUs: number;
+  evictions: number;
+  bytes: number;
+}
+
+export interface TelemetrySnapshot {
+  numLayers: number;
+  residentLayers: number;
+  layerBytes: number[];
+  pinnedBytes: number;
+  streaming: boolean;
+  device: string;
+  estimatedH2d: boolean;
+}
+
+export interface FlowState {
+  snapshot: TelemetrySnapshot | null;
+  mmapRead: StageStat;
+  ramHit: StageStat;
+  ramMiss: StageStat;
+  dequant: StageStat;
+  pinStage: StageStat;
+  h2d: StageStat;
+  compute: StageStat;
+  evict: StageStat;
+  prefetch: StageStat;
+  layers: LayerState[];
+  prefetchDepth: number | null;
+  /** 1.0 means no events were lost. */
+  sampledFraction: number;
+  dropped: number;
+  token: number;
+  windowSecs: number;
+  active: boolean;
+}
+
+export interface GpuInfo {
+  name: string;
+  vramTotal: number | null;
+  vramUsed: number | null;
+  utilizationPct: number | null;
+  temperatureC: number | null;
+  clockMhz: number | null;
+  maxClockMhz: number | null;
+  throttleReasons: string[];
+  pcieLinkWidth: number | null;
+  pcieMaxLinkWidth: number | null;
+  pcieLinkGen: number | null;
+  pcieMaxLinkGen: number | null;
+  pcieTxBytesPerSec: number | null;
+  pcieRxBytesPerSec: number | null;
+}
+
+export interface HostInfo {
+  cpuPct: number | null;
+  ramTotal: number | null;
+  ramUsed: number | null;
+  engineReadBytesPerSec: number | null;
+}
+
+export interface HwSnapshot {
+  gpus: GpuInfo[];
+  host: HostInfo;
+  gpuUnavailableReason: string | null;
+}
+
+export type Severity = "info" | "warning" | "critical";
+
+export interface Finding {
+  id: string;
+  severity: Severity;
+  title: string;
+  detail: string;
+  fix: string | null;
+}
+
+export interface FlowSnapshot {
+  flow: FlowState;
+  hw: HwSnapshot;
+  findings: Finding[];
+  subscribed: boolean;
+}

@@ -5,6 +5,8 @@ export default function StatusBar() {
   const status = useStore((s) => s.status);
   const caps = useStore((s) => s.caps);
   const metrics = useStore((s) => s.metrics);
+  const flowOpen = useStore((s) => s.flowOpen);
+  const setFlowOpen = useStore((s) => s.setFlowOpen);
 
   let badge = { cls: "", dot: "", label: "" };
   switch (status.kind) {
@@ -57,6 +59,16 @@ export default function StatusBar() {
       )}
 
       <span className="spacer" />
+
+      <button
+        className="ghost"
+        style={{ padding: "1px 8px", fontSize: 12 }}
+        title="Watch layers move from storage through to compute"
+        onClick={() => setFlowOpen(!flowOpen)}
+      >
+        {flowOpen ? "Hide flow" : "Show flow"}
+      </button>
+
 
       {stream ? (
         <>

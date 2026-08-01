@@ -13,6 +13,7 @@ import type {
   DoneEvent,
   ErrorEvent,
   FitPreview,
+  FlowSnapshot,
   LocalModel,
   LogLine,
   Sampling,
@@ -84,6 +85,12 @@ export const api = {
   apiLog: (limit?: number) =>
     invoke<ApiLogEntry[]>("api_log", { limit: limit ?? null }),
   clearApiLog: () => invoke<void>("clear_api_log"),
+
+  // --- flow telemetry -----------------------------------------------------
+  /** Subscribing is what makes the engine start collecting. */
+  flowSubscribe: () => invoke<void>("flow_subscribe"),
+  flowUnsubscribe: () => invoke<void>("flow_unsubscribe"),
+  flowState: () => invoke<FlowSnapshot>("flow_state"),
 };
 
 /** Subscribe to the streaming chat events for one turn.

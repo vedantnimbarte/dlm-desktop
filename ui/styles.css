@@ -159,6 +159,24 @@ input[type="checkbox"] {
   height: 100%;
 }
 
+/* The flow panel is a bottom drawer spanning chat + right panel, so the
+   conversation stays visible while you watch the layers move. */
+.app.flow-open {
+  grid-template-rows: 1fr minmax(210px, 30%) auto;
+  grid-template-areas:
+    "sidebar chat panel"
+    "sidebar flow flow"
+    "statusbar statusbar statusbar";
+}
+
+.flow-panel {
+  grid-area: flow;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  overflow: hidden;
+  min-height: 0;
+}
+
 .sidebar {
   grid-area: sidebar;
   background: var(--bg-panel);
@@ -875,4 +893,280 @@ mark {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--fg-dim);
+}
+
+/* ------------------------------------------------------------- flow view */
+
+.flow {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  height: 100%;
+  min-height: 0;
+}
+
+.flow-main {
+  padding: 12px 14px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.flow-side {
+  border-left: 1px solid var(--border);
+  padding: 12px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.flow-empty {
+  padding: 26px 20px;
+  text-align: center;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+  max-width: 620px;
+  margin: 0 auto;
+}
+
+.flow-note {
+  font-size: 11.5px;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+/* --- topology --- */
+
+.topology {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.topo-group {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+.topo-group:last-child {
+  flex: 0 0 auto;
+}
+
+.topo-node {
+  border: 1px solid var(--border-strong);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  padding: 7px 11px;
+  background: var(--bg-raised);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.topo-label {
+  font-size: 12.5px;
+  font-weight: 550;
+}
+.topo-sub {
+  font-size: 10.5px;
+}
+
+.topo-edge {
+  flex: 1;
+  padding: 0 8px;
+  min-width: 60px;
+}
+
+.edge-line {
+  background: linear-gradient(
+    90deg,
+    var(--stage-bus) 0%,
+    color-mix(in srgb, var(--stage-bus) 55%, transparent) 100%
+  );
+  border-radius: 2px;
+  /* Animated stripes convey direction and rate. Reduced-motion users get a
+     static bar; the numbers below it carry the same information. */
+  background-size: 22px 100%;
+  animation: flowmove 1.1s linear infinite;
+}
+.edge-line.idle {
+  background: var(--border);
+  animation: none;
+}
+/* An estimated duration is never drawn as a solid measured edge. */
+.edge-line.estimated {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--stage-bus) 0 6px,
+    transparent 6px 12px
+  );
+  animation: none;
+}
+@keyframes flowmove {
+  to {
+    background-position: 22px 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .edge-line {
+    animation: none;
+  }
+}
+
+.edge-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--fg-dim);
+  margin-top: 4px;
+}
+.edge-rate {
+  color: var(--fg-muted);
+}
+.edge-est {
+  color: var(--warn);
+}
+
+/* --- layer strip --- */
+
+.layer-strip-wrap {
+  margin-top: 14px;
+}
+.layer-strip-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 5px;
+}
+.layer-strip {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+.layer-cell {
+  flex: 1 1 10px;
+  min-width: 8px;
+  height: 22px;
+  border-radius: 2px;
+  background: var(--bg-active);
+  transition: background 0.15s ease;
+}
+.layer-cell.resident {
+  background: var(--stage-vram);
+}
+.layer-cell.prefetched {
+  background: var(--stage-ram);
+}
+.layer-cell.evicted {
+  background: var(--stage-bus);
+  opacity: 0.55;
+}
+.layer-cell.absent {
+  background: var(--bg-active);
+}
+
+.layer-legend {
+  display: flex;
+  gap: 12px;
+  font-size: 10.5px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.layer-legend .sw {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.sw.resident {
+  background: var(--stage-vram);
+}
+.sw.prefetched {
+  background: var(--stage-ram);
+}
+.sw.evicted {
+  background: var(--stage-bus);
+  opacity: 0.55;
+}
+.sw.absent {
+  background: var(--bg-active);
+}
+
+/* --- verdict --- */
+
+.verdict {
+  margin-bottom: 14px;
+}
+.verdict-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-active);
+}
+.verdict-transfer {
+  background: var(--stage-bus);
+}
+.verdict-compute {
+  background: var(--stage-compute);
+}
+.verdict-text {
+  font-size: 12px;
+  margin-top: 6px;
+}
+.verdict-sub {
+  font-size: 10.5px;
+  margin-top: 2px;
+}
+
+/* --- findings --- */
+
+.findings {
+  margin-bottom: 12px;
+}
+.finding {
+  border-left: 3px solid var(--border-strong);
+  padding: 6px 0 6px 9px;
+  margin-bottom: 9px;
+}
+.finding.info {
+  border-left-color: var(--accent);
+}
+.finding.warning {
+  border-left-color: var(--warn);
+}
+.finding.critical {
+  border-left-color: var(--danger);
+}
+.finding-title {
+  font-size: 12px;
+  font-weight: 550;
+  margin-bottom: 2px;
+}
+.finding-detail {
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  line-height: 1.45;
+}
+.finding-fix {
+  font-size: 11.5px;
+  color: var(--fg);
+  line-height: 1.45;
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+
+/* --- gpu panel --- */
+
+.gpu-panel {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.gpu-name {
+  font-size: 12px;
+  font-weight: 550;
+  margin-bottom: 6px;
 }

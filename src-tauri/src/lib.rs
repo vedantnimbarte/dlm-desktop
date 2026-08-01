@@ -12,9 +12,13 @@
 //! and "stop" can take effect mid-stream.
 
 pub mod client;
+pub mod diag;
 pub mod engine;
+pub mod flow;
+pub mod hw;
 pub mod models;
 pub mod store;
+pub mod telemetry;
 
 use client::{Cancel, ChatEvent, ChatMessage, Flow, Sampling, ServerMetrics};
 use engine::{Capabilities, LogLine, ServeConfig, Status, Supervisor};
@@ -39,6 +43,12 @@ pub struct AppState {
     /// in which case chat still works and nothing is persisted — losing history
     /// is better than refusing to start.
     store: Option<store::Store>,
+    /// Rolling aggregate of telemetry events.
+    flow: Arc<Mutex<flow::Aggregator>>,
+    /// Cancel token for the telemetry subscription, if one is open. Dropping
+    /// the subscription is also what makes the engine stop collecting.
+    flow_cancel: Mutex<Option<Cancel>>,
+    hw: hw::HwMonitor,
 }
 
 impl AppState {
@@ -56,6 +66,9 @@ impl AppState {
             next_request_id: AtomicU64::new(1),
             binary_override: Mutex::new(None),
             store,
+            flow: Arc::new(Mutex::new(flow::Aggregator::new())),
+            flow_cancel: Mutex::new(None),
+            hw: hw::HwMonitor::new(),
         }
     }
 
@@ -230,6 +243,81 @@ fn preview_command(state: State<'_, AppState>, config: ServeConfig) -> String {
 #[tauri::command]
 fn default_serve_config() -> ServeConfig {
     ServeConfig::default()
+}
+
+// ---------------------------------------------------------------------------
+// Flow telemetry
+// ---------------------------------------------------------------------------
+
+/// Everything the flow view renders in one poll.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowSnapshot {
+    flow: flow::FlowState,
+    hw: hw::HwSnapshot,
+    findings: Vec<diag::Finding>,
+    /// Whether a telemetry subscription is currently open.
+    subscribed: bool,
+}
+
+/// Subscribe to the engine's telemetry stream.
+///
+/// Subscribing is what makes the engine start collecting, so this is not a
+/// passive read — it is the on switch, and [`flow_unsubscribe`] is the off
+/// switch. The stream runs on its own thread and feeds the aggregator; the UI
+/// polls [`flow_state`] rather than receiving an event per batch, because at 20
+/// batches a second an event per batch would be pure overhead for a view that
+/// repaints at most as fast as the display.
+#[tauri::command]
+fn flow_subscribe(state: State<'_, AppState>) -> UiResult<()> {
+    let endpoint = state.supervisor.endpoint().ok_or_else(|| UiError {
+        kind: "notConnected".into(),
+        message: "not connected to a dlm server".into(),
+    })?;
+
+    // Supersede any existing subscription so two streams cannot feed the same
+    // aggregator.
+    let cancel = Cancel::new();
+    if let Some(prev) = state.flow_cancel.lock().unwrap().replace(cancel.clone()) {
+        prev.cancel();
+    }
+    state.flow.lock().unwrap().clear();
+
+    let agg = Arc::clone(&state.flow);
+    std::thread::spawn(move || {
+        let _ = telemetry::subscribe(&endpoint, &cancel, |frame| {
+            match frame {
+                telemetry::Frame::Snapshot(s) => agg.lock().unwrap().set_snapshot(s),
+                telemetry::Frame::Flow(b) => {
+                    agg.lock().unwrap().ingest(b.events, b.dropped)
+                }
+            }
+            Flow::Continue
+        });
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn flow_unsubscribe(state: State<'_, AppState>) {
+    if let Some(cancel) = state.flow_cancel.lock().unwrap().take() {
+        cancel.cancel();
+    }
+    state.flow.lock().unwrap().clear();
+}
+
+/// Current flow state, hardware counters, and the findings over both.
+#[tauri::command]
+fn flow_state(state: State<'_, AppState>) -> FlowSnapshot {
+    let flow = state.flow.lock().unwrap().state();
+    let hw = state.hw.snapshot();
+    let findings = diag::analyze(&flow, &hw);
+    FlowSnapshot {
+        flow,
+        hw,
+        findings,
+        subscribed: state.flow_cancel.lock().unwrap().is_some(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -629,6 +717,9 @@ pub fn run() {
             search_messages,
             api_log,
             clear_api_log,
+            flow_subscribe,
+            flow_unsubscribe,
+            flow_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running dlm-desktop");
