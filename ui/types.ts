@@ -117,7 +117,99 @@ export interface Conversation {
   id: string;
   title: string;
   createdAt: number;
+  /** Loaded lazily from the store when the conversation is opened. */
   messages: UiMessage[];
+  /** True once the messages have been fetched, so an empty chat is
+   *  distinguishable from one that simply has not loaded yet. */
+  loaded: boolean;
+  messageCount?: number;
+}
+
+/** `store::Conversation` as it crosses the boundary. */
+export interface StoredConversation {
+  id: string;
+  title: string;
+  modelId: string | null;
+  created: number;
+  updated: number;
+  messageCount: number;
+}
+
+export interface StoredMessage {
+  id: string;
+  conversationId: string;
+  seq: number;
+  role: "system" | "user" | "assistant";
+  content: string;
+  ts: number;
+  meta: string | null;
+}
+
+export interface SearchHit {
+  conversationId: string;
+  conversationTitle: string;
+  messageId: string;
+  role: string;
+  /** FTS5 excerpt; the match is wrapped in [ ]. */
+  snippet: string;
+  ts: number;
+}
+
+export interface ApiLogEntry {
+  id: number;
+  ts: number;
+  method: string;
+  path: string;
+  status: number | null;
+  latencyMs: number | null;
+  ttftMs: number | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  requestPreview: string | null;
+  responsePreview: string | null;
+  error: string | null;
+}
+
+export interface LocalModel {
+  path: string;
+  name: string;
+  checkpointBytes: number;
+  numLayers: number;
+  hiddenSize: number;
+  isMoe: boolean;
+  estimatedParams: number;
+  hasTokenizer: boolean;
+  /** Set when dlm cannot decode the architecture; the model is still listed. */
+  error: string | null;
+}
+
+export type VramSource =
+  | { kind: "device"; free: number; total: number }
+  | { kind: "manual"; bytes: number }
+  | { kind: "unavailable"; reason: string };
+
+export interface FitRow {
+  quant: "checkpoint" | "int8" | "int4";
+  available: boolean;
+  unavailableReason: string | null;
+  layersToLoad: number;
+  numLayers: number;
+  residentFraction: number;
+  streamPasses: number;
+  perLayerWeightBytes: number;
+  kvTotalBytes: number;
+  pinnedBytes: number;
+  usableBytes: number;
+  fitsEntirely: boolean;
+}
+
+export interface FitPreview {
+  model: LocalModel;
+  vram: VramSource;
+  nativeQuant: string;
+  contextLength: number;
+  maxBatch: number;
+  rows: FitRow[];
 }
 
 export interface DeltaEvent {

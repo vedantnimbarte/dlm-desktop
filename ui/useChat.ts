@@ -3,18 +3,39 @@
  * Event listeners are registered **once** for the app, not once per turn, and
  * deltas are routed by request id through `inFlight`. Registering per turn is
  * the obvious approach and the wrong one: React strict-mode double-invocation
- * and any overlapping turn both end up double-appending every token. */
+ * and any overlapping turn both end up double-appending every token.
+ *
+ * Persistence follows the same rule as the store: the message row is written
+ * when the turn starts and rewritten once when it ends, never per token. */
 
 import { useCallback, useEffect, useRef } from "react";
 import { api, errorMessage, listenChat } from "./api";
 import { useStore, nextId } from "./store";
-import type { ChatMessage } from "./types";
+import type { ChatMessage, UiMessage } from "./types";
 
 /** request id -> where its tokens belong. */
 const inFlight = new Map<
   number,
   { conversationId: string; messageId: string }
 >();
+
+/** Persist a finished assistant turn, body and measurements together. */
+function persistFinished(conversationId: string, messageId: string) {
+  const conversation = useStore
+    .getState()
+    .conversations.find((c) => c.id === conversationId);
+  const message = conversation?.messages.find((m) => m.id === messageId);
+  if (!message) return;
+  void api
+    .finalizeMessage(
+      messageId,
+      message.content,
+      message.stats ? JSON.stringify(message.stats) : null,
+    )
+    .catch(() => {
+      /* history is best-effort; the turn is already on screen */
+    });
+}
 
 export function useChat() {
   const unlistenRef = useRef<(() => void) | null>(null);
@@ -45,7 +66,9 @@ export function useChat() {
             tokensPerSec: e.tokensPerSec,
           },
         });
-        if (store.activeRequestId === e.requestId) store.setActiveRequestId(null);
+        persistFinished(target.conversationId, target.messageId);
+        if (store.activeRequestId === e.requestId)
+          store.setActiveRequestId(null);
       },
       onError: (e) => {
         const target = inFlight.get(e.requestId);
@@ -56,7 +79,11 @@ export function useChat() {
           streaming: false,
           error: e.message,
         });
-        if (store.activeRequestId === e.requestId) store.setActiveRequestId(null);
+        // Persist whatever text arrived before the failure rather than leaving
+        // an empty row that reads as "the model said nothing".
+        persistFinished(target.conversationId, target.messageId);
+        if (store.activeRequestId === e.requestId)
+          store.setActiveRequestId(null);
       },
     }).then((unlisten) => {
       if (disposed) unlisten();
@@ -70,20 +97,30 @@ export function useChat() {
     };
   }, []);
 
+  /** Send `text` as a new user turn. */
   const send = useCallback(async (text: string) => {
     const store = useStore.getState();
-    const conversationId = store.activeId ?? store.newConversation();
+    const conversationId = store.activeId ?? (await store.newConversation());
     const conversation = useStore
       .getState()
       .conversations.find((c) => c.id === conversationId);
     if (!conversation) return;
 
-    const userMessage = {
+    const userMessage: UiMessage = {
       id: nextId(),
-      role: "user" as const,
+      role: "user",
       content: text,
     };
     store.appendMessage(conversationId, userMessage);
+    void api
+      .appendMessage({
+        conversationId,
+        id: userMessage.id,
+        role: "user",
+        content: text,
+        meta: null,
+      })
+      .catch(() => {});
 
     // The server is stateless, so every turn replays the whole conversation.
     // Messages that errored out carry no usable assistant text and are dropped
@@ -102,9 +139,21 @@ export function useChat() {
       content: "",
       streaming: true,
     });
+    void api
+      .appendMessage({
+        conversationId,
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        meta: null,
+      })
+      .catch(() => {});
 
     try {
-      const requestId = await api.chatSend(history, useStore.getState().sampling);
+      const requestId = await api.chatSend(
+        history,
+        useStore.getState().sampling,
+      );
       inFlight.set(requestId, { conversationId, messageId: assistantId });
       useStore.getState().setActiveRequestId(requestId);
     } catch (e) {
@@ -115,9 +164,38 @@ export function useChat() {
     }
   }, []);
 
+  /** Re-run the last user turn, discarding the assistant answer that followed. */
+  const regenerate = useCallback(async () => {
+    const store = useStore.getState();
+    const conversation = store.conversations.find(
+      (c) => c.id === store.activeId,
+    );
+    if (!conversation) return;
+
+    // Walk back to the last user message; everything from the assistant reply
+    // after it is what gets replaced.
+    const lastUserIndex = [...conversation.messages]
+      .reverse()
+      .findIndex((m) => m.role === "user");
+    if (lastUserIndex === -1) return;
+    const index = conversation.messages.length - 1 - lastUserIndex;
+    const prompt = conversation.messages[index].content;
+
+    // Drop the user turn and everything after it locally and in the store, then
+    // resend — `send` re-appends the user message, so the history stays exact.
+    const kept = conversation.messages.slice(0, index);
+    useStore.setState((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === conversation.id ? { ...c, messages: kept } : c,
+      ),
+    }));
+    await api.truncateConversation(conversation.id, index).catch(() => {});
+    await send(prompt);
+  }, [send]);
+
   const stop = useCallback(async () => {
     await api.chatStop();
   }, []);
 
-  return { send, stop };
+  return { send, stop, regenerate };
 }

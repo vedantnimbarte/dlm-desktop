@@ -7,7 +7,7 @@ export default function ChatPane() {
   const conversation = useActiveConversation();
   const status = useStore((s) => s.status);
   const activeRequestId = useStore((s) => s.activeRequestId);
-  const { send, stop } = useChat();
+  const { send, stop, regenerate } = useChat();
 
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -52,6 +52,15 @@ export default function ChatPane() {
             {status.local ? "local" : "remote"} · {status.endpoint}
           </span>
         )}
+        <span className="spacer" />
+        <button
+          className="ghost"
+          title="Discard the last answer and ask again"
+          disabled={!ready || streaming || messages.length < 2}
+          onClick={() => void regenerate()}
+        >
+          Regenerate
+        </button>
       </header>
 
       <div className="messages" ref={scrollRef} onScroll={onScroll}>

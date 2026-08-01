@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { api, errorMessage, listenEngineLog } from "./api";
+import { api, errorMessage, listenApiLog, listenEngineLog } from "./api";
 import { useStore } from "./store";
 import Sidebar from "./components/Sidebar";
 import ChatPane from "./components/ChatPane";
@@ -18,7 +18,7 @@ export default function App() {
   const setConfig = useStore((s) => s.setConfig);
   const pushLog = useStore((s) => s.pushLog);
   const setLogs = useStore((s) => s.setLogs);
-  const newConversation = useStore((s) => s.newConversation);
+  const pushApiLog = useStore((s) => s.pushApiLog);
 
   // One-time boot: find the engine, load defaults, start an empty chat.
   useEffect(() => {
@@ -53,14 +53,35 @@ export default function App() {
       } catch {
         /* logs are best-effort */
       }
-    })();
 
-    if (useStore.getState().conversations.length === 0) newConversation();
+      // Restore history, then open the most recent chat (or start one).
+      const store = useStore.getState();
+      await store.loadConversations();
+      if (cancelled) return;
+      const restored = useStore.getState().conversations;
+      if (restored.length === 0) await store.newConversation();
+      else await store.selectConversation(restored[0].id);
+
+      try {
+        const entries = await api.apiLog();
+        if (!cancelled) useStore.getState().setApiLog(entries);
+      } catch {
+        /* api log is best-effort */
+      }
+
+      // Point the model browser at a sensible directory on first run.
+      try {
+        const root = await api.defaultModelsRoot();
+        if (!cancelled && root) await useStore.getState().scanModels(root);
+      } catch {
+        /* the user can pick a directory by hand */
+      }
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, [setCaps, setConfig, setLogs, setProbeError, newConversation]);
+  }, [setCaps, setConfig, setLogs, setProbeError]);
 
   // Live engine output.
   useEffect(() => {
@@ -70,6 +91,15 @@ export default function App() {
     });
     return () => unlisten?.();
   }, [pushLog]);
+
+  // Completed API calls, pushed rather than polled.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listenApiLog(pushApiLog).then((u) => {
+      unlisten = u;
+    });
+    return () => unlisten?.();
+  }, [pushApiLog]);
 
   // Connection status.
   useEffect(() => {

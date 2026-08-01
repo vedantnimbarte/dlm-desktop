@@ -2,10 +2,12 @@ import { useStore, type RightPanel as Tab } from "../store";
 import ModelTab from "./ModelTab";
 import SettingsTab from "./SettingsTab";
 import LogsTab from "./LogsTab";
+import ApiTab from "./ApiTab";
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "model", label: "Model" },
   { id: "settings", label: "Settings" },
+  { id: "api", label: "API" },
   { id: "logs", label: "Logs" },
 ];
 
@@ -29,6 +31,7 @@ export default function RightPanel() {
       <div className="panel-body">
         {active === "model" && <ModelTab />}
         {active === "settings" && <SettingsTab />}
+        {active === "api" && <ApiTab />}
         {active === "logs" && <LogsTab />}
       </div>
     </aside>

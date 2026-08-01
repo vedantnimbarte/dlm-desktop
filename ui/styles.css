@@ -602,6 +602,263 @@ input[type="checkbox"] {
   color: var(--danger);
 }
 
+/* ------------------------------------------------------ sidebar search/hits */
+
+.sidebar-search {
+  padding: 8px 8px 4px;
+}
+.sidebar-search input {
+  font-size: 12.5px;
+}
+
+.sidebar-foot {
+  padding: 6px 10px 8px;
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+}
+
+.hit {
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  margin-bottom: 2px;
+}
+.hit:hover {
+  background: var(--bg-hover);
+}
+.hit-title {
+  font-size: 12px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hit-snippet {
+  font-size: 11.5px;
+  color: var(--fg-dim);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+.hit-role {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--bg-active);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+mark {
+  background: var(--accent-dim);
+  color: var(--fg);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* ------------------------------------------------------------- model browser */
+
+.model-list {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+}
+
+.model-row {
+  padding: 7px 9px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.model-row:last-child {
+  border-bottom: none;
+}
+.model-row:hover {
+  background: var(--bg-hover);
+}
+.model-row.active {
+  background: var(--bg-active);
+}
+.model-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.model-meta {
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.tag {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--bg-active);
+  color: var(--fg-muted);
+  border: 1px solid var(--border-strong);
+}
+.tag-warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.tag-error {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* ---------------------------------------------------------------- fit table */
+
+.fit {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  margin-bottom: 12px;
+}
+.fit-basis {
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  margin-bottom: 8px;
+}
+
+.fit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+.fit-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.fit-table td {
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.fit-table td:not(:first-child) {
+  text-align: right;
+  padding-left: 8px;
+}
+.fit-table tr:last-child td {
+  border-bottom: none;
+}
+.fit-table tr.unavailable td {
+  color: var(--fg-dim);
+}
+
+/* Resident-layer bar. Full width in a distinct colour means "no streaming",
+   which is the outcome worth spotting at a glance. */
+.fit-bar {
+  height: 4px;
+  background: var(--bg-active);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 3px;
+}
+.fit-bar-fill {
+  height: 100%;
+  background: var(--stage-bus);
+  border-radius: 2px;
+}
+.fit-bar-fill.full {
+  background: var(--ok);
+}
+
+.fit-notes {
+  margin-top: 9px;
+}
+.note {
+  font-size: 11.5px;
+  line-height: 1.45;
+  margin-top: 6px;
+}
+.ok-text {
+  color: var(--ok);
+}
+.warn-text {
+  color: var(--warn);
+}
+
+/* ------------------------------------------------------------------ api log */
+
+.api-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.api-row:hover {
+  background: var(--bg-hover);
+}
+.api-row.failed {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+.api-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+}
+.api-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+}
+.api-status {
+  font-weight: 600;
+}
+.api-metrics {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+.api-error {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--danger);
+  white-space: pre-wrap;
+}
+.api-detail {
+  margin-top: 7px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+.api-detail-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-dim);
+  margin: 5px 0 3px;
+}
+.api-detail pre {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 7px 8px;
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+
 /* --------------------------------------------------------------- scrollbar */
 
 ::-webkit-scrollbar {

@@ -6,16 +6,22 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  ApiLogEntry,
   Capabilities,
   ChatMessage,
   DeltaEvent,
   DoneEvent,
   ErrorEvent,
+  FitPreview,
+  LocalModel,
   LogLine,
   Sampling,
+  SearchHit,
   ServeConfig,
   ServerMetrics,
   Status,
+  StoredConversation,
+  StoredMessage,
 } from "./types";
 
 export const api = {
@@ -39,6 +45,45 @@ export const api = {
   chatSend: (messages: ChatMessage[], sampling: Sampling) =>
     invoke<number>("chat_send", { messages, sampling }),
   chatStop: () => invoke<void>("chat_stop"),
+
+  // --- models -------------------------------------------------------------
+  defaultModelsRoot: () => invoke<string | null>("default_models_root"),
+  scanModels: (root: string) => invoke<LocalModel[]>("scan_models", { root }),
+  modelFit: (args: {
+    path: string;
+    contextLength: number;
+    maxBatch: number;
+    safetyMarginGb: number | null;
+    vramBudgetGb: number | null;
+  }) => invoke<FitPreview>("model_fit", args),
+
+  // --- history ------------------------------------------------------------
+  listConversations: () => invoke<StoredConversation[]>("list_conversations"),
+  createConversation: (id: string, title: string) =>
+    invoke<StoredConversation>("create_conversation", { id, title }),
+  renameConversation: (id: string, title: string) =>
+    invoke<void>("rename_conversation", { id, title }),
+  deleteConversation: (id: string) =>
+    invoke<void>("delete_conversation", { id }),
+  conversationMessages: (conversationId: string) =>
+    invoke<StoredMessage[]>("conversation_messages", { conversationId }),
+  appendMessage: (args: {
+    conversationId: string;
+    id: string;
+    role: string;
+    content: string;
+    meta: string | null;
+  }) => invoke<number>("append_message", args),
+  finalizeMessage: (id: string, content: string, meta: string | null) =>
+    invoke<void>("finalize_message", { id, content, meta }),
+  truncateConversation: (conversationId: string, seq: number) =>
+    invoke<void>("truncate_conversation", { conversationId, seq }),
+  searchMessages: (query: string, limit?: number) =>
+    invoke<SearchHit[]>("search_messages", { query, limit: limit ?? null }),
+
+  apiLog: (limit?: number) =>
+    invoke<ApiLogEntry[]>("api_log", { limit: limit ?? null }),
+  clearApiLog: () => invoke<void>("clear_api_log"),
 };
 
 /** Subscribe to the streaming chat events for one turn.
@@ -64,6 +109,13 @@ export function listenEngineLog(
   onLine: (line: LogLine) => void,
 ): Promise<UnlistenFn> {
   return listen<LogLine>("engine:log", (e) => onLine(e.payload));
+}
+
+/** One event per completed API call, so the log panel updates without polling. */
+export function listenApiLog(
+  onEntry: (entry: ApiLogEntry) => void,
+): Promise<UnlistenFn> {
+  return listen<ApiLogEntry>("api:logged", (e) => onEntry(e.payload));
 }
 
 /** Normalize a rejected `invoke` into a readable message.

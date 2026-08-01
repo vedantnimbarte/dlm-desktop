@@ -20,6 +20,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
 
+# Conversation history. `bundled` compiles SQLite from source, so there is no
+# system library to find on any of the three target platforms — and its
+# amalgamation ships FTS5 compiled in, which is what cross-conversation search
+# uses. There is no separate `fts5` feature to ask for; the store's unit tests
+# create an FTS5 table, so a build without it fails loudly rather than at
+# runtime in front of a user.
+rusqlite = { version = "0.40", features = ["bundled"] }
+
 # The engine, linked as a library for the work that must happen *before* a
 # server exists: reading the local model catalog, planning VRAM, tokenizing.
 # Inference itself runs in a spawned `dlm serve` (see src/engine).
