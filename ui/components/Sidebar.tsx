@@ -33,11 +33,10 @@ export default function Sidebar() {
       <div className="sidebar-head">
         <span className="brand">dlm</span>
         <button
-          className="ghost"
-          title="New chat"
+          className="primary small"
           onClick={() => void newConversation()}
         >
-          + New
+          New chat
         </button>
       </div>
 

@@ -24,8 +24,7 @@ export default function ApiTab() {
         <div className="section-title">
           API calls
           <button
-            className="ghost"
-            style={{ float: "right", padding: "0 6px" }}
+            className="soft small"
             disabled={entries.length === 0}
             onClick={() => void clear()}
           >

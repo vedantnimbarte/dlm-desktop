@@ -143,15 +143,15 @@ export default function ModelTab() {
     <>
       <div className="section">
         <div className="section-title">Connection</div>
-        <div className="field-row" style={{ marginBottom: 12 }}>
+        <div className="segmented">
           <button
-            className={mode === "local" ? "primary" : ""}
+            className={mode === "local" ? "active" : ""}
             onClick={() => setMode("local")}
           >
             Local
           </button>
           <button
-            className={mode === "remote" ? "primary" : ""}
+            className={mode === "remote" ? "active" : ""}
             onClick={() => setMode("remote")}
           >
             Remote

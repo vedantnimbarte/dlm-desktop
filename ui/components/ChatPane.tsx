@@ -105,10 +105,13 @@ export default function ChatPane() {
 
       <div className="messages" ref={scrollRef} onScroll={onScroll}>
         {messages.length === 0 ? (
-          <div className="empty">
-            {ready
-              ? "Send a message to start."
-              : "Load a model or attach to a running dlm server to begin."}
+          <div className="chat-empty">
+            <h2>{ready ? "Start a conversation." : "No model loaded."}</h2>
+            <p>
+              {ready
+                ? "Replies stream from the loaded model as they're generated."
+                : "Pick a checkpoint in the Model panel, or attach to a running dlm server."}
+            </p>
           </div>
         ) : (
           messages.map((m) => <Message key={m.id} message={m} />)

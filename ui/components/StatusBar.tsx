@@ -61,8 +61,6 @@ export default function StatusBar() {
       <span className="spacer" />
 
       <button
-        className="ghost"
-        style={{ padding: "1px 8px", fontSize: 12 }}
         title="Watch layers move from storage through to compute"
         onClick={() => setFlowOpen(!flowOpen)}
       >
