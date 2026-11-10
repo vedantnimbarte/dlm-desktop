@@ -14,6 +14,7 @@ const STATUS_POLL_MS = 1000;
 
 export default function App() {
   const setStatus = useStore((s) => s.setStatus);
+  const setMetrics = useStore((s) => s.setMetrics);
   const setCaps = useStore((s) => s.setCaps);
   const setProbeError = useStore((s) => s.setProbeError);
   const setConfig = useStore((s) => s.setConfig);
@@ -103,13 +104,16 @@ export default function App() {
     return () => unlisten?.();
   }, [pushApiLog]);
 
-  // Connection status.
+  // Connection status, and the server's counters while it is up. The counters
+  // drive the status bar's streaming/resident state and token totals.
   useEffect(() => {
     let stop = false;
     const tick = async () => {
       try {
         const status = await api.status();
-        if (!stop) setStatus(status);
+        if (stop) return;
+        setStatus(status);
+        setMetrics(status.kind === "ready" ? await api.metrics() : null);
       } catch {
         /* transient; the next tick retries */
       }
@@ -120,7 +124,7 @@ export default function App() {
       stop = true;
       clearInterval(id);
     };
-  }, [setStatus]);
+  }, [setStatus, setMetrics]);
 
   return (
     <div className={`app${flowOpen ? " flow-open" : ""}`}>

@@ -288,10 +288,21 @@ pub fn request(
     path: &str,
     body: Option<&[u8]>,
 ) -> Result<Response> {
-    let mut sock = endpoint.connect()?;
     // A buffered call should not hang forever if the engine wedges mid-token;
     // it is generous because a cold model load can precede the first response.
-    sock.set_read_timeout(Some(Duration::from_secs(120)))?;
+    request_within(endpoint, method, path, body, Duration::from_secs(120))
+}
+
+/// [`request`] with a caller-chosen read timeout.
+pub fn request_within(
+    endpoint: &Endpoint,
+    method: &str,
+    path: &str,
+    body: Option<&[u8]>,
+    read_timeout: Duration,
+) -> Result<Response> {
+    let mut sock = endpoint.connect()?;
+    sock.set_read_timeout(Some(read_timeout))?;
     endpoint.write_request(&mut sock, method, path, body, "application/json")?;
 
     let mut reader = BufReader::new(sock);

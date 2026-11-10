@@ -29,7 +29,7 @@ export type Segment =
 const TAGS = ["thinking", "think"] as const;
 
 const OPEN_RE = new RegExp(`<(${TAGS.join("|")})\\s*>`, "i");
-const CLOSE_RE = new RegExp(`</(${TAGS.join("|")})\\s*>`, "i");
+export const CLOSE_RE = new RegExp(`</(${TAGS.join("|")})\\s*>`, "i");
 
 /**
  * Length of a trailing run that could still become a tag.

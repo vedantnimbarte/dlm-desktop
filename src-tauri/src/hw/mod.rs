@@ -102,6 +102,9 @@ pub struct HwSnapshot {
 /// and the diagnostics can be tested against a fake.
 pub trait HwSource: Send + Sync {
     fn snapshot(&mut self) -> HwSnapshot;
+    /// Which process's disk reads count as the engine's. Sources with no
+    /// per-process view ignore it.
+    fn set_engine_pid(&mut self, _pid: Option<u32>) {}
 }
 
 /// The real backend for this platform.
@@ -139,16 +142,6 @@ impl SystemHw {
         }
     }
 
-    /// Track this process's disk reads as the engine's.
-    pub fn set_engine_pid(&mut self, pid: Option<u32>) {
-        if self.engine_pid != pid {
-            // A new process starts a new rate series; differencing across a
-            // restart would produce a nonsense spike.
-            self.last_read = None;
-        }
-        self.engine_pid = pid;
-    }
-
     fn nvml(&mut self) -> Option<&nvml_wrapper::Nvml> {
         if matches!(self.nvml, NvmlState::Uninit) {
             self.nvml = match nvml_wrapper::Nvml::init() {
@@ -171,6 +164,16 @@ impl SystemHw {
 }
 
 impl HwSource for SystemHw {
+    /// Track this process's disk reads as the engine's.
+    fn set_engine_pid(&mut self, pid: Option<u32>) {
+        if self.engine_pid != pid {
+            // A new process starts a new rate series; differencing across a
+            // restart would produce a nonsense spike.
+            self.last_read = None;
+        }
+        self.engine_pid = pid;
+    }
+
     fn snapshot(&mut self) -> HwSnapshot {
         let mut snap = HwSnapshot::default();
 
@@ -315,8 +318,11 @@ impl HwMonitor {
         }
     }
 
-    pub fn snapshot(&self) -> HwSnapshot {
-        self.source.lock().unwrap().snapshot()
+    /// Snapshot, attributing disk reads to `engine_pid` (the owned server).
+    pub fn snapshot(&self, engine_pid: Option<u32>) -> HwSnapshot {
+        let mut source = self.source.lock().unwrap();
+        source.set_engine_pid(engine_pid);
+        source.snapshot()
     }
 }
 

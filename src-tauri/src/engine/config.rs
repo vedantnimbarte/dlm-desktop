@@ -34,11 +34,14 @@ impl Quant {
     }
 }
 
-/// dlm's `--kv-quant` values.
+/// dlm's `--kv-quant` values (`KvQuantArg`). `f16` is dlm's default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum KvQuant {
-    None,
+    F16,
+    /// dlm still accepts `none` as an alias for exact f32.
+    #[serde(alias = "none")]
+    F32,
     Int8,
     Int4,
 }
@@ -46,9 +49,31 @@ pub enum KvQuant {
 impl KvQuant {
     fn as_str(self) -> &'static str {
         match self {
-            KvQuant::None => "none",
+            KvQuant::F16 => "f16",
+            KvQuant::F32 => "f32",
             KvQuant::Int8 => "int8",
             KvQuant::Int4 => "int4",
+        }
+    }
+}
+
+/// dlm's `--speculative` values. `auto` is dlm's default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Speculative {
+    Auto,
+    Off,
+    Ngram,
+    Draft,
+}
+
+impl Speculative {
+    fn as_str(self) -> &'static str {
+        match self {
+            Speculative::Auto => "auto",
+            Speculative::Off => "off",
+            Speculative::Ngram => "ngram",
+            Speculative::Draft => "draft",
         }
     }
 }
@@ -61,25 +86,6 @@ pub enum Device {
     Auto,
     Cpu,
     Gpu,
-}
-
-/// dlm's `--chat-template`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ChatTemplate {
-    Plain,
-    Chatml,
-    Llama3,
-}
-
-impl ChatTemplate {
-    fn as_str(self) -> &'static str {
-        match self {
-            ChatTemplate::Plain => "plain",
-            ChatTemplate::Chatml => "chatml",
-            ChatTemplate::Llama3 => "llama3",
-        }
-    }
 }
 
 /// Everything the app can put on a `dlm serve` command line.
@@ -113,13 +119,19 @@ pub struct ServeConfig {
     pub device: Device,
     pub multi_gpu_ids: Vec<u32>,
     pub max_batch: usize,
+    /// `--gpu-layers`: first N layers on the GPU, the rest on the CPU.
+    pub gpu_layers: Option<u32>,
 
     // --- generation ---------------------------------------------------------
-    pub chat_template: ChatTemplate,
+    /// `auto` (dlm's default: detect from the checkpoint) or a template name.
+    /// A string, not an enum, so a template dlm adds later needs no app change.
+    pub chat_template: String,
     pub eos_token: Option<u32>,
-    pub prefix_cache_size: usize,
+    /// `None` keeps dlm's device-dependent default (64 on GPU, off on CPU).
+    pub prefix_cache_size: Option<usize>,
 
     // --- speculative decoding ----------------------------------------------
+    pub speculative: Speculative,
     pub draft_model_path: Option<PathBuf>,
     pub draft_gamma: usize,
 
@@ -140,7 +152,7 @@ impl Default for ServeConfig {
             port: 8000,
             host: "127.0.0.1".into(),
             quant: Quant::Checkpoint,
-            kv_quant: KvQuant::None,
+            kv_quant: KvQuant::F16,
             vram_budget_gb: None,
             safety_margin_gb: None,
             ram_cache_gb: None,
@@ -153,9 +165,11 @@ impl Default for ServeConfig {
             device: Device::Auto,
             multi_gpu_ids: Vec::new(),
             max_batch: 8,
-            chat_template: ChatTemplate::Plain,
+            gpu_layers: None,
+            chat_template: "auto".into(),
             eos_token: None,
-            prefix_cache_size: 0,
+            prefix_cache_size: None,
+            speculative: Speculative::Auto,
             draft_model_path: None,
             draft_gamma: 4,
             api_key: None,
@@ -237,28 +251,33 @@ impl ServeConfig {
         if self.max_batch != d.max_batch {
             push_val(&mut a, "--max-batch", self.max_batch.to_string());
         }
-        if self.chat_template != d.chat_template {
-            push_val(
-                &mut a,
-                "--chat-template",
-                self.chat_template.as_str().to_string(),
-            );
+        if let Some(n) = self.gpu_layers {
+            push_val(&mut a, "--gpu-layers", n.to_string());
+        }
+        let template = self.chat_template.trim();
+        if !template.is_empty() && template != d.chat_template {
+            push_val(&mut a, "--chat-template", template.to_string());
         }
         if let Some(t) = self.eos_token {
             push_val(&mut a, "--eos-token", t.to_string());
         }
-        if self.prefix_cache_size != d.prefix_cache_size {
+        if let Some(n) = self.prefix_cache_size {
+            push_val(&mut a, "--prefix-cache-size", n.to_string());
+        }
+        if self.speculative != d.speculative {
             push_val(
                 &mut a,
-                "--prefix-cache-size",
-                self.prefix_cache_size.to_string(),
+                "--speculative",
+                self.speculative.as_str().to_string(),
             );
         }
         if let Some(p) = &self.draft_model_path {
             push_val(&mut a, "--draft-model-path", p.display().to_string());
-            if self.draft_gamma != d.draft_gamma {
-                push_val(&mut a, "--draft-gamma", self.draft_gamma.to_string());
-            }
+        }
+        // Gamma now sizes n-gram lookup's proposals too, not only a draft
+        // model's, so it is meaningful whenever speculation can run.
+        if self.draft_gamma != d.draft_gamma && self.speculative != Speculative::Off {
+            push_val(&mut a, "--draft-gamma", self.draft_gamma.to_string());
         }
         if let Some(k) = self.api_key.as_ref().filter(|k| !k.is_empty()) {
             push_val(&mut a, "--api-key", k.clone());
@@ -382,19 +401,48 @@ mod tests {
         assert!(!c.to_argv(false).contains(&"--telemetry".to_string()));
     }
 
+    /// Gamma also sizes n-gram lookup now, so it goes out whenever speculation
+    /// is not switched off.
     #[test]
-    fn draft_gamma_only_appears_with_a_draft_model() {
+    fn draft_gamma_is_dropped_only_when_speculation_is_off() {
         let c = ServeConfig {
             draft_gamma: 8,
             ..cfg()
         };
-        assert!(!c.to_argv(true).contains(&"--draft-gamma".to_string()));
+        assert!(c.to_argv(true).contains(&"--draft-gamma".to_string()));
 
         let c = ServeConfig {
-            draft_model_path: Some(PathBuf::from("models/tiny")),
+            speculative: Speculative::Off,
             ..c
         };
-        assert!(c.to_argv(true).contains(&"--draft-gamma".to_string()));
+        let argv = c.to_argv(true).join(" ");
+        assert!(!argv.contains("--draft-gamma"), "{argv}");
+        assert!(argv.contains("--speculative off"), "{argv}");
+    }
+
+    /// dlm's own defaults (`auto` template, `f16` KV, device-dependent prefix
+    /// cache) must produce no flag; explicit choices must.
+    #[test]
+    fn new_engine_defaults_stay_off_the_command_line() {
+        let c = ServeConfig {
+            chat_template: "gemma".into(),
+            kv_quant: KvQuant::F32,
+            prefix_cache_size: Some(0),
+            gpu_layers: Some(16),
+            ..cfg()
+        };
+        let joined = c.to_argv(true).join(" ");
+        assert!(joined.contains("--chat-template gemma"), "{joined}");
+        assert!(joined.contains("--kv-quant f32"), "{joined}");
+        assert!(joined.contains("--prefix-cache-size 0"), "{joined}");
+        assert!(joined.contains("--gpu-layers 16"), "{joined}");
+    }
+
+    /// Older UI state said `none` for exact f32; it must still deserialize.
+    #[test]
+    fn kv_quant_none_reads_as_f32() {
+        let k: KvQuant = serde_json::from_str("\"none\"").unwrap();
+        assert_eq!(k, KvQuant::F32);
     }
 
     #[test]

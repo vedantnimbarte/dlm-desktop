@@ -128,7 +128,10 @@ export const useStore = create<AppStore>((set, get) => ({
   config: null,
   connecting: false,
 
-  setStatus: (status) => set({ status }),
+  // Polled every second; an unchanged value must not re-render every
+  // subscriber. Returning the same state object makes zustand skip notifying.
+  setStatus: (status) =>
+    set((s) => (sameJson(s.status, status) ? s : { status })),
   setCaps: (caps) => set({ caps }),
   setProbeError: (probeError) => set({ probeError }),
   pushLog: (line) =>
@@ -139,7 +142,8 @@ export const useStore = create<AppStore>((set, get) => ({
           : [...s.logs, line],
     })),
   setLogs: (logs) => set({ logs }),
-  setMetrics: (metrics) => set({ metrics }),
+  setMetrics: (metrics) =>
+    set((s) => (sameJson(s.metrics, metrics) ? s : { metrics })),
   setConfig: (config) => set({ config }),
   patchConfig: (patch) =>
     set((s) => ({ config: s.config ? { ...s.config, ...patch } : s.config })),
@@ -147,7 +151,9 @@ export const useStore = create<AppStore>((set, get) => ({
 
   conversations: [],
   activeId: null,
-  sampling: { temperature: 0.7, max_tokens: 512 },
+  // No max_tokens: dlm then generates to the end of the answer, capped by
+  // the context window. A fixed cap cut reasoning models off mid-thought.
+  sampling: { temperature: 0.7 },
   activeRequestId: null,
   historyAvailable: true,
 
@@ -415,6 +421,11 @@ function saveFlag(key: string, value: boolean) {
   } catch {
     /* private mode or a locked-down webview; the setting just will not stick */
   }
+}
+
+/** Structural equality for small polled payloads (status, metrics). */
+function sameJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function summarize(text: string): string {

@@ -52,7 +52,7 @@ export default function StatusBar() {
       {caps && !caps.telemetry && (
         <span
           className="dim"
-          title="This dlm build has no --telemetry flag, so per-layer flow events are unavailable. The flow view falls back to /metrics polling."
+          title="This dlm build has no --telemetry flag, so per-layer flow events are unavailable. The status bar still shows /metrics counters."
         >
           telemetry unavailable
         </span>
@@ -81,7 +81,9 @@ export default function StatusBar() {
           </span>
         </>
       ) : (
-        status.kind === "ready" && (
+        // Only claim "resident" once /metrics has answered without streaming
+        // gauges; before that, nothing is known.
+        metrics && (
           <span className="dim" title="All layers are resident; nothing is streaming.">
             resident (not streaming)
           </span>
@@ -89,8 +91,11 @@ export default function StatusBar() {
       )}
 
       {metrics && (
-        <span className="dim mono">
-          {metrics.completion_tokens} tokens generated
+        <span
+          className="dim mono"
+          title={`${metrics.prompt_tokens} prompt tokens processed since the server started`}
+        >
+          {metrics.requests} requests · {metrics.completion_tokens} tokens generated
         </span>
       )}
     </footer>

@@ -10,7 +10,7 @@
 
 pub mod config;
 
-pub use config::{ChatTemplate, Device, KvQuant, Quant, ServeConfig};
+pub use config::{Device, KvQuant, Quant, ServeConfig, Speculative};
 
 use crate::client::{self, Endpoint};
 use serde::Serialize;
@@ -118,7 +118,7 @@ pub fn discover_local_servers() -> Vec<DiscoveredServer> {
             let endpoint = Endpoint::local(port);
             // Identity, not just liveness: something else answering on 8000 is
             // not a dlm server, and offering to attach to it would be wrong.
-            let cards = client::models(&endpoint).ok()?;
+            let cards = client::probe_models(&endpoint).ok()?;
             let model_id = cards.first()?.id.clone();
             Some(DiscoveredServer {
                 address: endpoint.authority(),
@@ -253,6 +253,16 @@ impl Supervisor {
 
     pub fn endpoint(&self) -> Option<Endpoint> {
         self.inner.lock().unwrap().endpoint.clone()
+    }
+
+    /// PID of the server this app owns, if any.
+    pub fn engine_pid(&self) -> Option<u32> {
+        self.inner
+            .lock()
+            .unwrap()
+            .local
+            .as_ref()
+            .map(|l| l.child.id())
     }
 
     pub fn config(&self) -> Option<ServeConfig> {

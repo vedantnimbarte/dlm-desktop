@@ -203,3 +203,37 @@ fn without_a_vram_figure_rows_are_marked_unavailable() {
         VramSource::Manual { .. } => panic!("no manual budget was given"),
     }
 }
+
+/// GGUF files are listed, read from their own metadata, and offered only at
+/// the precision they were saved in — dlm refuses `--quant` on them.
+#[test]
+fn gguf_files_are_found_and_planned_at_their_own_precision() {
+    let dir = dir_or_skip!(gguf_files_are_found_and_planned_at_their_own_precision);
+    let found = models::scan(&dir).expect("scan failed");
+    let Some(gguf) = found
+        .iter()
+        .find(|m| m.gguf_type.is_some() && m.error.is_none())
+    else {
+        eprintln!("skipping: no readable .gguf under {}", dir.display());
+        return;
+    };
+    eprintln!(
+        "{} {:?}: {} layers, {:.2} GiB",
+        gguf.name,
+        gguf.gguf_type,
+        gguf.num_layers,
+        gib(gguf.checkpoint_bytes)
+    );
+    assert!(gguf.num_layers > 0, "geometry not read from GGUF metadata");
+    assert!(gguf.has_tokenizer, "a GGUF carries its own tokenizer");
+
+    let preview = models::fit_preview(std::path::Path::new(&gguf.path), 4096, 1, None, Some(4.0))
+        .expect("fit_preview failed on a GGUF");
+    eprintln!("native: {}", preview.native_quant);
+    let row = |q: &str| preview.rows.iter().find(|r| r.quant == q).unwrap();
+    assert!(row("checkpoint").available, "{:?}", row("checkpoint"));
+    assert!(!row("int8").available && !row("int4").available);
+    assert!(preview
+        .native_quant
+        .contains(gguf.gguf_type.as_deref().unwrap()));
+}

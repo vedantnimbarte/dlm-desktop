@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { useStore } from "../store";
 import { splitThinking } from "../thinking";
 import type { UiMessage } from "../types";
@@ -38,7 +39,9 @@ function Prose({ text }: { text: string }) {
   );
 }
 
-export default function Message({ message }: { message: UiMessage }) {
+/** Memoized: the store keeps an unchanged message's object identity, so while
+ *  one answer streams, every finished message above it skips re-rendering. */
+export default memo(function Message({ message }: { message: UiMessage }) {
   const { role, content, streaming, error, stats } = message;
   const showThinking = useStore((s) => s.showThinking);
   const expandThinking = useStore((s) => s.expandThinking);
@@ -59,6 +62,12 @@ export default function Message({ message }: { message: UiMessage }) {
   // this model looked before reasoning was handled at all.
   const nothingVisibleYet =
     streaming && visible.every((p) => p.text.trim().length === 0);
+
+  // dlm only reports usage when it speculated; otherwise counts are deltas.
+  const approx = stats?.estimated ? "~" : "";
+  const approxTitle = stats?.estimated
+    ? "Counted from streamed chunks; the server did not report usage"
+    : undefined;
 
   return (
     <div className={`msg ${role}`}>
@@ -92,20 +101,39 @@ export default function Message({ message }: { message: UiMessage }) {
         {stats && !streaming && (
           <div className="msg-stats">
             {stats.tokensPerSec != null && (
-              <span>{stats.tokensPerSec.toFixed(1)} tok/s</span>
+              <span title={approxTitle}>
+                {approx}
+                {stats.tokensPerSec.toFixed(1)} tok/s
+              </span>
             )}
             {stats.ttftMs != null && <span>{stats.ttftMs} ms to first token</span>}
             {stats.completionTokens != null && (
-              <span>{stats.completionTokens} tokens</span>
+              <span title={approxTitle}>
+                {approx}
+                {stats.completionTokens} tokens
+              </span>
+            )}
+            {stats.promptTokens != null && (
+              <span>{stats.promptTokens} prompt tokens</span>
+            )}
+            {stats.speculative && stats.speculative.draftProposed > 0 && (
+              <span title="Speculative decoding: drafted tokens the model accepted">
+                {(stats.speculative.acceptanceRate * 100).toFixed(0)}% of{" "}
+                {stats.speculative.draftProposed} drafted accepted
+              </span>
             )}
             {stats.thinkingMs != null && (
               <span>{(stats.thinkingMs / 1000).toFixed(1)}s thinking</span>
             )}
-            {stats.reason === "length" && <span>hit max_tokens</span>}
+            {stats.reason === "length" && (
+              <span title="Stopped at max tokens or the end of the context window">
+                hit length limit
+              </span>
+            )}
             {stats.reason === "cancelled" && <span>stopped</span>}
           </div>
         )}
       </div>
     </div>
   );
-}
+});

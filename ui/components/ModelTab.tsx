@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, errorMessage } from "../api";
 import { useStore } from "../store";
 import { formatBytes, formatParams } from "../format";
-import { pickDirectory, pickExecutable } from "../pick";
+import { pickDirectory, pickExecutable, pickFile } from "../pick";
 import FitTable from "./FitTable";
 import type { DiscoveredServer } from "../types";
 
@@ -137,6 +137,16 @@ export default function ModelTab() {
     // Show the fit preview for it too, so "will this run?" is answered without
     // the model having to be in the scanned list.
     selectModel(dir);
+  };
+
+  /** A GGUF model is one self-contained file, not a folder. */
+  const browseGguf = async () => {
+    const file = await pickFile("Select a .gguf model", "GGUF model", [
+      "gguf",
+    ]);
+    if (!file) return;
+    patchConfig({ modelPath: file });
+    selectModel(file);
   };
 
   return (
@@ -294,6 +304,7 @@ export default function ModelTab() {
                     <div className="model-name">
                       {m.name}
                       {m.isMoe && <span className="tag">MoE</span>}
+                      {m.ggufType && <span className="tag">{m.ggufType}</span>}
                       {m.error && (
                         <span className="tag tag-error" title={m.error}>
                           unsupported
@@ -335,12 +346,19 @@ export default function ModelTab() {
                   title="Choose a model folder"
                   onClick={() => void browseModel()}
                 >
-                  Browse…
+                  Folder…
+                </button>
+                <button
+                  style={{ flex: "0 0 auto" }}
+                  title="Choose a .gguf file"
+                  onClick={() => void browseGguf()}
+                >
+                  GGUF…
                 </button>
               </div>
               <div className="hint">
                 A folder with <code>config.json</code> and{" "}
-                <code>*.safetensors</code>.
+                <code>*.safetensors</code>, or a single <code>.gguf</code> file.
               </div>
             </div>
 
@@ -390,6 +408,11 @@ export default function ModelTab() {
   );
 }
 
+/** Blank input means "omit the field", not zero. */
+function optNum(raw: string): number | undefined {
+  return raw === "" ? undefined : Number(raw);
+}
+
 function SamplingSection() {
   const sampling = useStore((s) => s.sampling);
   const setSampling = useStore((s) => s.setSampling);
@@ -416,9 +439,13 @@ function SamplingSection() {
         <input
           type="number"
           min={1}
-          value={sampling.max_tokens ?? 512}
-          onChange={(e) => setSampling({ max_tokens: Number(e.target.value) })}
+          value={sampling.max_tokens ?? ""}
+          placeholder="no limit"
+          onChange={(e) => setSampling({ max_tokens: optNum(e.target.value) })}
         />
+        <div className="hint">
+          Blank runs to the end of the answer, capped by the context window.
+        </div>
       </div>
 
       <div className="field-row">
@@ -431,12 +458,7 @@ function SamplingSection() {
             step={0.05}
             value={sampling.top_p ?? ""}
             placeholder="default"
-            onChange={(e) =>
-              setSampling({
-                top_p:
-                  e.target.value === "" ? undefined : Number(e.target.value),
-              })
-            }
+            onChange={(e) => setSampling({ top_p: optNum(e.target.value) })}
           />
         </div>
         <div className="field">
@@ -446,15 +468,75 @@ function SamplingSection() {
             min={0}
             value={sampling.top_k ?? ""}
             placeholder="default"
+            onChange={(e) => setSampling({ top_k: optNum(e.target.value) })}
+          />
+        </div>
+      </div>
+
+      <div className="field-row">
+        <div className="field">
+          <label>frequency_penalty</label>
+          <input
+            type="number"
+            min={-2}
+            max={2}
+            step={0.1}
+            value={sampling.frequency_penalty ?? ""}
+            placeholder="0"
             onChange={(e) =>
-              setSampling({
-                top_k:
-                  e.target.value === "" ? undefined : Number(e.target.value),
-              })
+              setSampling({ frequency_penalty: optNum(e.target.value) })
+            }
+          />
+        </div>
+        <div className="field">
+          <label>presence_penalty</label>
+          <input
+            type="number"
+            min={-2}
+            max={2}
+            step={0.1}
+            value={sampling.presence_penalty ?? ""}
+            placeholder="0"
+            onChange={(e) =>
+              setSampling({ presence_penalty: optNum(e.target.value) })
             }
           />
         </div>
       </div>
+
+      <div className="field">
+        <label>DRY multiplier</label>
+        <input
+          type="number"
+          min={0}
+          step={0.1}
+          value={sampling.dry_multiplier ?? ""}
+          placeholder="off"
+          onChange={(e) =>
+            setSampling({ dry_multiplier: optNum(e.target.value) })
+          }
+        />
+        <div className="hint">
+          Penalizes verbatim loops a small model falls into; 0.8 is a common
+          starting point.
+        </div>
+      </div>
+
+      <div className="checkbox-field">
+        <input
+          type="checkbox"
+          checked={sampling.response_format?.type === "json_object"}
+          onChange={(e) =>
+            setSampling({
+              response_format: e.target.checked
+                ? { type: "json_object" }
+                : undefined,
+            })
+          }
+        />
+        <label>JSON output (response_format: json_object)</label>
+      </div>
+
       <div className="hint">
         Blank fields are omitted from the request, leaving the server's own
         defaults in place.

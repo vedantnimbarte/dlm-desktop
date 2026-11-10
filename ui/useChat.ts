@@ -11,14 +11,15 @@
 import { useCallback, useEffect, useRef } from "react";
 import { api, errorMessage, listenChat } from "./api";
 import { useStore, nextId } from "./store";
-import { answerOnly, isThinking } from "./thinking";
+import { answerOnly, CLOSE_RE } from "./thinking";
 import type { ChatMessage, UiMessage } from "./types";
 
 /** request id -> where its tokens belong, plus reasoning timing.
  *
  * `startedAt` is set when the turn begins and `thinkingMs` when the reasoning
  * block closes, so "Thought for 4.2s" is measured rather than inferred from the
- * total. */
+ * total. `tail` is the last few characters received, so a closing tag split
+ * across chunks is still seen without rescanning the whole message. */
 const inFlight = new Map<
   number,
   {
@@ -26,9 +27,38 @@ const inFlight = new Map<
     messageId: string;
     startedAt: number;
     thinkingMs?: number;
-    wasThinking: boolean;
+    tail: string;
   }
 >();
+
+/** Longer than any closing tag `CLOSE_RE` matches. */
+const TAIL_CHARS = 16;
+
+/** Deltas received since the last paint, per request. Tokens can arrive far
+ *  faster than the display refreshes; applying each one rebuilt the store and
+ *  re-rendered the message per token. They are applied once per frame. */
+const pending = new Map<number, string>();
+let frame = 0;
+
+function flushDeltas() {
+  if (frame) cancelAnimationFrame(frame);
+  frame = 0;
+  for (const [requestId, text] of pending) {
+    const target = inFlight.get(requestId);
+    if (!target) continue;
+    useStore
+      .getState()
+      .appendToMessage(target.conversationId, target.messageId, text);
+    // The first closing tag ends the reasoning. This also covers templates
+    // that pre-fill `<think>`, where the model only ever emits the closer.
+    const seen = target.tail + text;
+    if (target.thinkingMs === undefined && CLOSE_RE.test(seen)) {
+      target.thinkingMs = Date.now() - target.startedAt;
+    }
+    target.tail = seen.slice(-TAIL_CHARS);
+  }
+  pending.clear();
+}
 
 /** Persist a finished assistant turn, body and measurements together. */
 function persistFinished(conversationId: string, messageId: string) {
@@ -56,29 +86,12 @@ export function useChat() {
 
     listenChat({
       onDelta: ({ requestId, text }) => {
-        const target = inFlight.get(requestId);
-        if (!target) return;
-        const store = useStore.getState();
-        store.appendToMessage(target.conversationId, target.messageId, text);
-
-        // Time the reasoning block by watching for the moment it closes.
-        // Reading the accumulated content back is what makes this correct for a
-        // tag that arrives split across several tokens.
-        if (target.thinkingMs === undefined) {
-          const message = useStore
-            .getState()
-            .conversations.find((c) => c.id === target.conversationId)
-            ?.messages.find((m) => m.id === target.messageId);
-          if (message) {
-            const thinkingNow = isThinking(message.content);
-            if (target.wasThinking && !thinkingNow) {
-              target.thinkingMs = Date.now() - target.startedAt;
-            }
-            target.wasThinking = target.wasThinking || thinkingNow;
-          }
-        }
+        if (!inFlight.has(requestId)) return;
+        pending.set(requestId, (pending.get(requestId) ?? "") + text);
+        if (!frame) frame = requestAnimationFrame(flushDeltas);
       },
       onDone: (e) => {
+        flushDeltas();
         const target = inFlight.get(e.requestId);
         if (!target) return;
         inFlight.delete(e.requestId);
@@ -92,6 +105,8 @@ export function useChat() {
             ttftMs: e.ttftMs,
             tokensPerSec: e.tokensPerSec,
             thinkingMs: target.thinkingMs ?? null,
+            estimated: e.estimated,
+            speculative: e.speculative,
           },
         });
         persistFinished(target.conversationId, target.messageId);
@@ -99,6 +114,7 @@ export function useChat() {
           store.setActiveRequestId(null);
       },
       onError: (e) => {
+        flushDeltas();
         const target = inFlight.get(e.requestId);
         if (!target) return;
         inFlight.delete(e.requestId);
@@ -194,7 +210,7 @@ export function useChat() {
         conversationId,
         messageId: assistantId,
         startedAt: Date.now(),
-        wasThinking: false,
+        tail: "",
       });
       useStore.getState().setActiveRequestId(requestId);
     } catch (e) {

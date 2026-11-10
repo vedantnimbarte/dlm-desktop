@@ -181,7 +181,7 @@ fn engine_logs(state: State<'_, AppState>) -> Vec<LogLine> {
 
 /// Locate the dlm binary and report what it supports, without starting it.
 /// Called on app start so the UI can say "dlm 0.4.0 found" or offer to browse.
-#[tauri::command]
+#[tauri::command(async)]
 fn probe_engine(state: State<'_, AppState>) -> UiResult<Capabilities> {
     let override_path = state.binary_override.lock().unwrap().clone();
     let binary = engine::resolve_binary(override_path)?;
@@ -223,7 +223,9 @@ fn disconnect(state: State<'_, AppState>) {
     state.supervisor.disconnect();
 }
 
-#[tauri::command]
+/// Off the main thread: a wedged server would otherwise freeze the window for
+/// the request's whole read timeout.
+#[tauri::command(async)]
 fn server_metrics(state: State<'_, AppState>) -> UiResult<ServerMetrics> {
     let endpoint = state.supervisor.endpoint().ok_or_else(|| UiError {
         kind: "notConnected".into(),
@@ -309,10 +311,10 @@ fn flow_unsubscribe(state: State<'_, AppState>) {
 }
 
 /// Current flow state, hardware counters, and the findings over both.
-#[tauri::command]
+#[tauri::command(async)]
 fn flow_state(state: State<'_, AppState>) -> FlowSnapshot {
     let flow = state.flow.lock().unwrap().state();
-    let hw = state.hw.snapshot();
+    let hw = state.hw.snapshot(state.supervisor.engine_pid());
     let findings = diag::analyze(&flow, &hw);
     FlowSnapshot {
         flow,
@@ -486,6 +488,11 @@ struct DoneEvent {
     ttft_ms: Option<u64>,
     /// Visible tokens per second over the generation phase.
     tokens_per_sec: Option<f64>,
+    /// True when the server sent no `usage`, so `completion_tokens` (and the
+    /// rate) are counted from stream deltas rather than reported by dlm.
+    estimated: bool,
+    /// Draft acceptance, when speculative decoding ran.
+    speculative: Option<client::SpeculativeUsage>,
 }
 
 /// Payload for `chat:error`.
@@ -538,7 +545,12 @@ fn chat_send(
         let started_at = now_ms();
         let mut first_token_at: Option<std::time::Duration> = None;
         let mut delta_count = 0usize;
-        let mut done: Option<DoneEvent> = None;
+        // dlm sends `finish_reason` and (when speculating) `usage` in separate
+        // chunks, so both are accumulated and merged rather than the second
+        // overwriting the first.
+        let mut finish_reason: Option<String> = None;
+        let mut usage: Option<client::Usage> = None;
+        let mut finished_at: Option<std::time::Duration> = None;
         let mut answer = String::new();
 
         let result =
@@ -557,27 +569,34 @@ fn chat_send(
                         let _ = app.emit("chat:delta", DeltaEvent { request_id, text });
                         Flow::Continue
                     }
-                    ChatEvent::Finished { reason, usage } => {
-                        let ttft = first_token_at.map(|d| d.as_millis() as u64);
-                        // Rate over the generation phase only — including the
-                        // prefill would understate a streamed model's decode speed.
-                        let gen_secs = first_token_at
-                            .map(|t| (started.elapsed() - t).as_secs_f64())
-                            .unwrap_or(0.0);
-                        let counted = usage.map(|u| u.completion_tokens).unwrap_or(delta_count);
-                        done = Some(DoneEvent {
-                            request_id,
-                            reason: reason.unwrap_or_else(|| "stop".into()),
-                            prompt_tokens: usage.map(|u| u.prompt_tokens),
-                            completion_tokens: usage.map(|u| u.completion_tokens),
-                            ttft_ms: ttft,
-                            tokens_per_sec: (gen_secs > 0.0 && counted > 0)
-                                .then(|| counted as f64 / gen_secs),
-                        });
+                    ChatEvent::Finished { reason, usage: u } => {
+                        finish_reason = reason.or(finish_reason.take());
+                        usage = u.or(usage);
+                        finished_at.get_or_insert_with(|| started.elapsed());
                         Flow::Continue
                     }
                 }
             });
+
+        let ttft_ms = first_token_at.map(|d| d.as_millis() as u64);
+        let done = finished_at.map(|end| {
+            // Rate over the generation phase only — including the prefill
+            // would understate a streamed model's decode speed.
+            let gen_secs = first_token_at
+                .map(|t| end.saturating_sub(t).as_secs_f64())
+                .unwrap_or(0.0);
+            let counted = usage.map(|u| u.completion_tokens).unwrap_or(delta_count);
+            DoneEvent {
+                request_id,
+                reason: finish_reason.clone().unwrap_or_else(|| "stop".into()),
+                prompt_tokens: usage.map(|u| u.prompt_tokens),
+                completion_tokens: Some(counted),
+                ttft_ms,
+                tokens_per_sec: (gen_secs > 0.0 && counted > 0).then(|| counted as f64 / gen_secs),
+                estimated: usage.is_none(),
+                speculative: usage.and_then(|u| u.speculative),
+            }
+        });
 
         // One API-log row per turn, whatever the outcome. A request that failed
         // or was cancelled is exactly the one someone opens this panel to look
@@ -623,9 +642,11 @@ fn chat_send(
                         request_id,
                         reason: "stop".into(),
                         prompt_tokens: None,
-                        completion_tokens: None,
-                        ttft_ms: first_token_at.map(|d| d.as_millis() as u64),
+                        completion_tokens: (delta_count > 0).then_some(delta_count),
+                        ttft_ms,
                         tokens_per_sec: None,
+                        estimated: true,
+                        speculative: None,
                     }),
                 );
             }
@@ -638,9 +659,11 @@ fn chat_send(
                         request_id,
                         reason: "cancelled".into(),
                         prompt_tokens: None,
-                        completion_tokens: None,
-                        ttft_ms: first_token_at.map(|d| d.as_millis() as u64),
+                        completion_tokens: (delta_count > 0).then_some(delta_count),
+                        ttft_ms,
                         tokens_per_sec: None,
+                        estimated: true,
+                        speculative: None,
                     },
                 );
             }

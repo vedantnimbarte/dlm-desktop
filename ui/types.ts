@@ -31,9 +31,9 @@ export interface UiError {
 }
 
 export type Quant = "checkpoint" | "int8" | "int4";
-export type KvQuant = "none" | "int8" | "int4";
+export type KvQuant = "f16" | "f32" | "int8" | "int4";
 export type Device = "auto" | "cpu" | "gpu";
-export type ChatTemplate = "plain" | "chatml" | "llama3";
+export type Speculative = "auto" | "off" | "ngram" | "draft";
 
 /** Mirrors `engine::ServeConfig`; field names match dlm's flags. */
 export interface ServeConfig {
@@ -54,9 +54,14 @@ export interface ServeConfig {
   device: Device;
   multiGpuIds: number[];
   maxBatch: number;
-  chatTemplate: ChatTemplate;
+  /** `--gpu-layers`: first N layers on the GPU, the rest on the CPU. */
+  gpuLayers: number | null;
+  /** "auto" (dlm detects it) or a template name. */
+  chatTemplate: string;
   eosToken: number | null;
-  prefixCacheSize: number;
+  /** null keeps dlm's default (64 on GPU, off on CPU). */
+  prefixCacheSize: number | null;
+  speculative: Speculative;
   draftModelPath: string | null;
   draftGamma: number;
   apiKey: string | null;
@@ -72,6 +77,10 @@ export interface Sampling {
   seed?: number;
   max_tokens?: number;
   stop?: string[];
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  dry_multiplier?: number;
+  response_format?: { type: "json_object" };
 }
 
 export interface StreamGauges {
@@ -112,7 +121,16 @@ export interface UiMessage extends ChatMessage {
     tokensPerSec?: number | null;
     /** Wall-clock spent inside a reasoning block, when the model emitted one. */
     thinkingMs?: number | null;
+    /** Counts came from stream deltas, not dlm's `usage`. */
+    estimated?: boolean;
+    speculative?: SpeculativeUsage | null;
   };
+}
+
+export interface SpeculativeUsage {
+  draftProposed: number;
+  draftAccepted: number;
+  acceptanceRate: number;
 }
 
 export interface Conversation {
@@ -181,6 +199,8 @@ export interface LocalModel {
   isMoe: boolean;
   estimatedParams: number;
   hasTokenizer: boolean;
+  /** Published quantization of a `.gguf` file ("Q4_K_M"); null for safetensors. */
+  ggufType: string | null;
   /** Set when dlm cannot decode the architecture; the model is still listed. */
   error: string | null;
 }
@@ -226,6 +246,8 @@ export interface DoneEvent {
   completionTokens: number | null;
   ttftMs: number | null;
   tokensPerSec: number | null;
+  estimated: boolean;
+  speculative: SpeculativeUsage | null;
 }
 
 export interface ErrorEvent {

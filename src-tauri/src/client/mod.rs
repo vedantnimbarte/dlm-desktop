@@ -72,6 +72,17 @@ pub struct Sampling {
     pub max_tokens: Option<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub stop: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frequency_penalty: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presence_penalty: Option<f64>,
+    /// DRY loop penalty; 0/absent leaves it off. dlm keeps llama.cpp's
+    /// defaults for the other `dry_*` fields.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dry_multiplier: Option<f64>,
+    /// Passed through verbatim, e.g. `{"type":"json_object"}`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -130,6 +141,21 @@ pub struct Usage {
     pub prompt_tokens: usize,
     #[serde(default)]
     pub completion_tokens: usize,
+    /// Present when speculative decoding (draft model or n-gram lookup) ran.
+    #[serde(default)]
+    pub speculative: Option<SpeculativeUsage>,
+}
+
+/// `usage.speculative` as dlm reports it; serialized camelCase for the UI.
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct SpeculativeUsage {
+    #[serde(default)]
+    pub draft_proposed: usize,
+    #[serde(default)]
+    pub draft_accepted: usize,
+    #[serde(default)]
+    pub acceptance_rate: f64,
 }
 
 /// What a streaming chat call hands back to the caller, piece by piece.
@@ -193,6 +219,22 @@ pub fn health(endpoint: &Endpoint) -> bool {
 /// am I actually talking to", which matters after a respawn.
 pub fn models(endpoint: &Endpoint) -> Result<Vec<ModelCard>, HttpError> {
     let resp = http::request(endpoint, "GET", "/v1/models", None)?.ok_or_status()?;
+    let parsed: ModelsResponse = serde_json::from_slice(&resp.body)
+        .map_err(|e| HttpError::Protocol(format!("/v1/models: {e}")))?;
+    Ok(parsed.data)
+}
+
+/// `/v1/models` with a short read timeout, for probing a port that may belong
+/// to something that accepts connections and never answers.
+pub fn probe_models(endpoint: &Endpoint) -> Result<Vec<ModelCard>, HttpError> {
+    let resp = http::request_within(
+        endpoint,
+        "GET",
+        "/v1/models",
+        None,
+        std::time::Duration::from_secs(2),
+    )?
+    .ok_or_status()?;
     let parsed: ModelsResponse = serde_json::from_slice(&resp.body)
         .map_err(|e| HttpError::Protocol(format!("/v1/models: {e}")))?;
     Ok(parsed.data)

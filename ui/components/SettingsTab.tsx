@@ -4,6 +4,19 @@ import { useStore } from "../store";
 import { pickExecutable } from "../pick";
 import type { ServeConfig } from "../types";
 
+/** dlm's `--chat-template` names (`dlm serve --help`). */
+const CHAT_TEMPLATES = [
+  "auto",
+  "plain",
+  "chatml",
+  "llama3",
+  "llama2",
+  "mistral",
+  "gemma",
+  "phi3",
+  "deepseek",
+];
+
 /** Optional numeric input: empty means "don't pass the flag", which is not the
  * same as zero. dlm treats an absent flag as "use my own default", so the null
  * has to survive the round trip. */
@@ -171,12 +184,14 @@ export default function SettingsTab() {
               set({ kvQuant: e.target.value as ServeConfig["kvQuant"] })
             }
           >
-            <option value="none">none — exact f32</option>
-            <option value="int8">int8 — about half</option>
-            <option value="int4">int4 — about a quarter</option>
+            <option value="f16">f16 — half, near-exact (default)</option>
+            <option value="f32">f32 — exact</option>
+            <option value="int8">int8 — about half (CPU)</option>
+            <option value="int4">int4 — about a quarter, more error (CPU)</option>
           </select>
           <div className="hint">
-            The KV cache can exceed the weights at long context.
+            The KV cache can exceed the weights at long context. On the GPU,
+            int8 and int4 are stored as f16.
           </div>
         </div>
       </div>
@@ -263,6 +278,14 @@ export default function SettingsTab() {
           checked={config.autoPrefetch}
           onChange={(v) => set({ autoPrefetch: v })}
         />
+        <OptNumber
+          label="GPU layers (--gpu-layers)"
+          hint="Alternative to streaming: keep the first N layers in VRAM and run the rest on the CPU. Faster decode than --stream on small cards, slower prefill. GPU only; not with --stream."
+          value={config.gpuLayers}
+          min={0}
+          placeholder="all (off)"
+          onChange={(v) => set({ gpuLayers: v })}
+        />
       </div>
 
       <div className="section">
@@ -300,17 +323,68 @@ export default function SettingsTab() {
           <label>Chat template</label>
           <select
             value={config.chatTemplate}
-            onChange={(e) =>
-              set({ chatTemplate: e.target.value as ServeConfig["chatTemplate"] })
-            }
+            onChange={(e) => set({ chatTemplate: e.target.value })}
           >
-            <option value="plain">plain</option>
-            <option value="chatml">chatml</option>
-            <option value="llama3">llama3</option>
+            {CHAT_TEMPLATES.map((t) => (
+              <option key={t} value={t}>
+                {t === "auto" ? "auto — detect from the checkpoint" : t}
+              </option>
+            ))}
           </select>
           <div className="hint">
             Match the model's trained format; the wrong one degrades output.
           </div>
+        </div>
+
+        <OptNumber
+          label="Prefix cache size"
+          hint="Prompt prefixes kept so a chat's history is not re-prefilled each turn. Blank keeps dlm's default (64 on GPU, off on CPU); 0 turns it off."
+          value={config.prefixCacheSize}
+          min={0}
+          onChange={(v) => set({ prefixCacheSize: v })}
+        />
+      </div>
+
+      <div className="section">
+        <div className="section-title">Speculative decoding</div>
+
+        <div className="field">
+          <label>Mode (--speculative)</label>
+          <select
+            value={config.speculative}
+            onChange={(e) =>
+              set({ speculative: e.target.value as ServeConfig["speculative"] })
+            }
+          >
+            <option value="auto">auto — draft model if set, else lookup when streamed</option>
+            <option value="ngram">ngram — lookup from the context, no second model</option>
+            <option value="draft">draft — use the draft model</option>
+            <option value="off">off</option>
+          </select>
+          <div className="hint">
+            Output is unchanged either way; it only changes how many tokens each
+            pass produces. Acceptance shows under each answer.
+          </div>
+        </div>
+
+        <div className="field">
+          <label>Draft model directory</label>
+          <input
+            value={config.draftModelPath ?? ""}
+            placeholder="none"
+            spellCheck={false}
+            onChange={(e) => set({ draftModelPath: e.target.value || null })}
+          />
+        </div>
+
+        <div className="field">
+          <label>Tokens proposed per round (--draft-gamma)</label>
+          <input
+            type="number"
+            min={1}
+            value={config.draftGamma}
+            onChange={(e) => set({ draftGamma: Number(e.target.value) })}
+          />
         </div>
       </div>
 
